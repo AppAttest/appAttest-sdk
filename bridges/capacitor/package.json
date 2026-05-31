@@ -1,0 +1,62 @@
+{
+  "name": "@appattest/capacitor",
+  "version": "0.1.0",
+  "description": "Capacitor bridge for AppAttest — App-Attest-gated secret delivery for iOS.",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "dist/",
+    "ios/Plugin/",
+    "AppattestCapacitor.podspec"
+  ],
+  "scripts": {
+    "verify": "npm run verify:ios && npm run verify:web",
+    "verify:ios": "pod lib lint AppattestCapacitor.podspec --allow-warnings --platforms=ios --include-podspecs=../../AppAttest.podspec,../../AppAttestObjC.podspec || true",
+    "verify:web": "npm run build",
+    "lint": "eslint . --ext .ts",
+    "fmt": "prettier \"src/**/*.ts\" --write",
+    "docgen": "docgen --api AppAttestPlugin --output-readme README.md --output-json dist/docs.json",
+    "build": "npm run clean && tsc && rollup -c rollup.config.js",
+    "clean": "rimraf ./dist",
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "native",
+    "ios",
+    "app-attest",
+    "secrets",
+    "keychain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AppAttest/appAttest-sdk.git",
+    "directory": "bridges/capacitor"
+  },
+  "author": "AppAttest",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/AppAttest/appAttest-sdk/issues"
+  },
+  "homepage": "https://github.com/AppAttest/appAttest-sdk/tree/main/bridges/capacitor#readme",
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0 || ^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@types/node": "^20.0.0",
+    "rimraf": "^5.0.0",
+    "rollup": "^4.0.0",
+    "typescript": "^5.4.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

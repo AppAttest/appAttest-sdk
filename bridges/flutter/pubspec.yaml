@@ -1,0 +1,32 @@
+name: appattest_flutter
+description: Flutter bridge for AppAttest — App-Attest-gated secret delivery for iOS.
+version: 0.1.0
+homepage: https://github.com/AppAttest/appAttest-sdk
+repository: https://github.com/AppAttest/appAttest-sdk
+issue_tracker: https://github.com/AppAttest/appAttest-sdk/issues
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  pigeon: ^22.0.0
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: AppAttestPlugin
+        # Swift-based; no ObjC header generation required. Pigeon generates
+        # the typed `Messages.g.swift` protocol our plugin adopts.
+
+# Pigeon config is invoked explicitly via `dart run pigeon --input
+# pigeons/messages.dart`. See pigeons/messages.dart for the actual
+# configuration (output paths, Swift class name, etc.).

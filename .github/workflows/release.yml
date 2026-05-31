@@ -1,0 +1,25 @@
+name: release
+
+# Builds and tests the package on every release tag.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        env:
+          APPATTEST_SKIP_INTEGRATION: "1"
+        run: swift test

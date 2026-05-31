@@ -1,0 +1,22 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+*.xcodeproj/
+*.xcworkspace/
+
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.moved-aside
+
+# Local env
+.env
+.env.local
+
+# Acceptance matrix runner output (syslog dumps, etc.)
+tmp/

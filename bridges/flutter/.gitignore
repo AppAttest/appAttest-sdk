@@ -1,0 +1,24 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+pubspec.lock
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# iOS / CocoaPods (example app only)
+example/ios/Pods/
+example/ios/.symlinks/
+example/ios/Flutter/Flutter.framework/
+example/ios/Flutter/Flutter.podspec
+example/ios/Runner.xcworkspace/xcuserdata/
+example/ios/Runner.xcodeproj/xcuserdata/

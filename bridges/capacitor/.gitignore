@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tgz
+.DS_Store
+
+# iOS build artifacts from the example app
+example/ios/App/Pods/
+example/ios/App/build/
+example/ios/App/App.xcworkspace/xcuserdata/
+example/ios/App/App.xcodeproj/xcuserdata/
+example/node_modules/
+example/www/
+
+# Local env
+.env
+.env.local

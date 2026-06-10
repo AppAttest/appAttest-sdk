@@ -1,4 +1,4 @@
-# appattest (Flutter)
+# appattest_flutter
 
 Flutter bridge for [AppAttest](https://www.appattest.dev) — App-Attest-gated
 secret delivery for iOS.
@@ -15,10 +15,13 @@ secret delivery for iOS.
 
 ## Install
 
+> Not yet on pub.dev — publication is upcoming. Until then the bridge ships
+> as source in `bridges/flutter` of the SDK repository. Once published:
+
 ```yaml
 # pubspec.yaml
 dependencies:
-  appattest: ^0.1.0
+  appattest_flutter: ^0.1.0
 ```
 
 Then:
@@ -31,7 +34,7 @@ cd ios && pod install && cd ..
 ## Quick start
 
 ```dart
-import 'package:appattest/appattest.dart';
+import 'package:appattest_flutter/appattest_flutter.dart';
 
 // On app launch:
 await AppAttest.attest();

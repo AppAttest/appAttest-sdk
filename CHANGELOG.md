@@ -31,12 +31,13 @@ only a genuine build of your genuine app can read them.
 - **Cross-platform bridges** — React Native (`@appattest/react-native`), Flutter
   (`appattest_flutter`), and Capacitor (`@appattest/capacitor`), each exposing
   the same `start / waitForReady / getSecret / state-observer` shape, idiomatic
-  to its runtime.
+  to its runtime. The bridges ship as source under `bridges/`; npm / pub.dev
+  publication follows in an upcoming release.
 - **Debug mode** — `AppAttest.debugMode = .local(stubs:)` for SwiftUI previews,
   simulator runs, unit tests, and CI where Apple's App Attest is unavailable.
 - **Apple privacy manifest** (`PrivacyInfo.xcprivacy`): no tracking, no
   required-reason API usage, no user-identity data collection.
-- DocC catalog and a SwiftUI reference example.
+- DocC catalog.
 
 ### Security
 - **Release builds always run real attestation.** The debug-mode surface is
@@ -56,5 +57,6 @@ only a genuine build of your genuine app can read them.
 - iOS 17, macOS 14, tvOS 17, watchOS 10. Swift 5.9+, Xcode 15+.
 
 ### Distribution
-- Swift Package Manager and CocoaPods. Source distribution — the consumer's
-  build compiles the SDK (the `#if DEBUG` Release-strip depends on it).
+- Swift Package Manager (git URL + version tag — available now). CocoaPods
+  trunk publication upcoming. Source distribution — the consumer's build
+  compiles the SDK (the `#if DEBUG` Release-strip depends on it).

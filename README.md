@@ -18,7 +18,8 @@ Swift Package Manager:
 .package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.1.0")
 ```
 
-CocoaPods:
+CocoaPods (trunk publication upcoming — Swift Package Manager is the
+supported install today):
 
 ```ruby
 pod 'AppAttest'
@@ -328,6 +329,9 @@ is intentionally lossy.
 
 All three expose the same `start() / waitForReady() / getSecret(name) /
 state observer` shape, idiomatic to each runtime.
+
+The bridges ship as source under `bridges/`; npm / pub.dev publication is
+upcoming — each bridge's README carries its status.
 
 ## Documentation
 

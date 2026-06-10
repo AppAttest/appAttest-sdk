@@ -36,7 +36,8 @@ final class IntegrationReachabilityTests: XCTestCase {
                 throw XCTSkip("\(healthz.absoluteString) returned \(http.statusCode)")
             }
             let body = String(data: data, encoding: .utf8) ?? ""
-            XCTAssertTrue(body.contains("\"status\""), "unexpected /healthz body: \(body)")
+            // The documented healthz success body is `{"ok":true}`.
+            XCTAssertTrue(body.contains("\"ok\""), "unexpected /healthz body: \(body)")
         } catch {
             throw XCTSkip("\(cfg.baseURL) unreachable: \(error.localizedDescription)")
         }

@@ -18,6 +18,9 @@ Capacitor 6 and 7 are both supported (peer-dep `^6 || ^7`).
 
 ## Install
 
+> Not yet on npm — publication is upcoming. Until then the bridge ships as
+> source in `bridges/capacitor` of the SDK repository. Once published:
+
 ```bash
 npm install @appattest/capacitor
 npx cap sync

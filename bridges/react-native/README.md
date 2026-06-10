@@ -16,6 +16,9 @@ secret delivery for iOS.
 
 ## Install
 
+> Not yet on npm — publication is upcoming. Until then the bridge ships as
+> source in `bridges/react-native` of the SDK repository. Once published:
+
 ```bash
 npm install @appattest/react-native
 cd ios && pod install

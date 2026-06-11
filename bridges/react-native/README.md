@@ -3,8 +3,7 @@
 React Native bridge for [AppAttest](https://www.appattest.dev) — App-Attest-gated
 secret delivery for iOS.
 
-> **Status: pre-release.** Ships in lockstep with the Swift SDK at
-> `v0.1.0`. Not yet published to npm.
+> Ships in lockstep with the Swift SDK (current: `v0.1.0`).
 > The JS/TS API shape is stable.
 
 ## Platform support
@@ -16,9 +15,6 @@ secret delivery for iOS.
   registered outside iOS.
 
 ## Install
-
-> Not yet on npm — publication is upcoming. Until then the bridge ships as
-> source in `bridges/react-native` of the SDK repository. Once published:
 
 ```bash
 npm install @appattest/react-native

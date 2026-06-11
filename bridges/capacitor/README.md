@@ -3,8 +3,7 @@
 Capacitor bridge for [AppAttest](https://www.appattest.dev) — App-Attest-gated
 secret delivery for iOS.
 
-> **Status: pre-release.** Ships in lockstep with the Swift SDK at
-> `v0.1.0`. Not yet published to npm.
+> Ships in lockstep with the Swift SDK (current: `v0.1.0`).
 
 ## Platform support
 
@@ -17,9 +16,6 @@ secret delivery for iOS.
 Capacitor 6 and 7 are both supported (peer-dep `^6 || ^7`).
 
 ## Install
-
-> Not yet on npm — publication is upcoming. Until then the bridge ships as
-> source in `bridges/capacitor` of the SDK repository. Once published:
 
 ```bash
 npm install @appattest/capacitor

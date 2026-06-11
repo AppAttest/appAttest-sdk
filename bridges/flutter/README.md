@@ -3,8 +3,7 @@
 Flutter bridge for [AppAttest](https://www.appattest.dev) — App-Attest-gated
 secret delivery for iOS.
 
-> **Status: pre-release.** Ships in lockstep with the Swift SDK at
-> `v0.1.0`. Not yet published to pub.dev.
+> Ships in lockstep with the Swift SDK (current: `v0.1.0`).
 
 ## Platform support
 
@@ -14,9 +13,6 @@ secret delivery for iOS.
   registers no implementation on other platforms.
 
 ## Install
-
-> Not yet on pub.dev — publication is upcoming. Until then the bridge ships
-> as source in `bridges/flutter` of the SDK repository. Once published:
 
 ```yaml
 # pubspec.yaml

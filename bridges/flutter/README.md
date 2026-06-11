@@ -8,10 +8,10 @@ secret delivery for iOS.
 
 ## Platform support
 
-- **iOS 14+** — full support. Uses Apple's `DCAppAttestService`.
-- **Android / other** — not supported. App Attest is iOS-only. Any call
-  on another platform throws an `AppAttestError` with code
-  `attestation_unsupported`.
+- **iOS 17+** — full support. Uses Apple's `DCAppAttestService` via the
+  native AppAttest Swift SDK.
+- **Android / other** — not supported. App Attest is iOS-only; the plugin
+  registers no implementation on other platforms.
 
 ## Install
 
@@ -31,129 +31,123 @@ flutter pub get
 cd ios && pod install && cd ..
 ```
 
+The iOS side depends on the `AppAttest` pod (the core Swift SDK), wired
+automatically through the plugin's podspec.
+
 ## Quick start
 
 ```dart
 import 'package:appattest_flutter/appattest_flutter.dart';
 
-// On app launch:
-await AppAttest.attest();
-await AppAttest.sync();
-
-// Later, anywhere:
-final openaiKey = await AppAttest.secret('OPENAI_API_KEY');
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  AppAttest.start();
+  runApp(const MyApp());
+}
 ```
 
-`attest()` registers the device once (persists across launches).
-`sync()` pulls every secret for this app's environment.
-`secret(name)` reads from the local Keychain cache — no network.
-
-## Rotation
-
-On app foreground or whenever you want to pick up a rotated secret:
-
 ```dart
-await AppAttest.refreshIfStale();
-// hits GET /v1/secrets/fingerprint; re-syncs only if the env changed
+// Anywhere:
+await AppAttest.waitForReady();
+final key = await AppAttest.secret('OPENAI_API_KEY'); // String?
+final all = await AppAttest.allSecrets();             // Map<String, String>
 ```
 
-Returns `true` if a re-sync happened.
+`start()` is fire-and-forget: the first launch attests the device once
+(persists across launches), then syncs secrets; later launches hydrate
+from the Keychain and re-sync in the background. Foreground re-entry
+re-syncs automatically — your app does no lifecycle wiring.
 
-Live rotation events (for in-app UI updates):
+## State
 
 ```dart
-final subscription = AppAttest.onRotation.listen((changedNames) {
-  debugPrint('secrets rotated: $changedNames');
+final s = await AppAttest.getState(); // AppAttestState(name, error?)
+
+final sub = AppAttest.stateStream.listen((s) {
+  debugPrint('appattest: ${s.name}');
 });
-// remember to cancel on dispose
+// later: sub.cancel();
 ```
+
+`AppAttestStateName`: `initializing`, `attesting`, `syncing`, `ready`,
+`subscriptionRequired`, `creditsRequired`, `unavailable`. The non-`ready`
+terminal states carry `state.error`.
+
+**End-user-facing apps:** show a generic "temporarily unavailable" notice
+for the non-`ready` terminal states. **Developer / staff builds:** log the
+full error (including `actionUrl`) so the developer knows whether to
+subscribe, top up, or investigate.
+
+## Refresh & recovery
+
+```dart
+await AppAttest.retry();            // re-run the sync (no re-attestation)
+await AppAttest.invalidateBundle(); // drop the cached bundle, force a fresh sync
+await AppAttest.reset();            // full wipe; next start() re-attests
+```
+
+`retry()` recovers from transient failures. `invalidateBundle()` forces
+fresh secret bytes when you don't want to wait for the next rotation
+pickup. `reset()` is the nuclear option, for sign-out / data-clearing flows.
+
+## Debug mode (simulator, tests, CI)
+
+The simulator can't produce a real App Attest attestation. Use local stubs:
+
+```dart
+import 'package:flutter/foundation.dart';
+
+if (kDebugMode) {
+  await AppAttest.setDebugMode(DebugMode.local, {
+    'OPENAI_API_KEY': 'sk-test-stub',
+  });
+}
+AppAttest.start();
+```
+
+`DebugMode` has a single case, `local`; pass `null` to return to real
+attestation. The native debug surface is `#if DEBUG`-gated — physically
+absent from Release builds, which always run real attestation; calling it
+there throws `debug_mode_release_blocked`.
+
+Dev builds on **real devices** don't need debug mode — they attest for
+real and read the sandbox bucket (below).
+
+## Buckets (sandbox vs production)
+
+There is no environment configuration. Apple's AAGUID in each attestation
+determines the bucket server-side: dev / TestFlight builds read the
+**sandbox** secrets column; App Store builds read **production**. Same
+code in both, no flags.
 
 ## Error handling
 
-All methods throw `AppAttestError`:
+Failures throw `AppAttestError` (`code` and `message`, plus `subscribeUrl` /
+`topupUrl` / `actionUrl` on the billing cases):
 
 ```dart
 try {
-  await AppAttest.attest();
-} on AppAttestError catch (err) {
-  switch (err.code) {
-    case ErrorCode.subscriptionRequired:
-      // show "subscribe to go live" prompt
-      break;
-    case ErrorCode.attestationUnsupported:
-      // older device or missing entitlement — degrade gracefully
-      break;
-    case ErrorCode.rateLimited:
-      // back off and retry
-      break;
+  await AppAttest.waitForReady();
+} on AppAttestError catch (e) {
+  if (e.code == ErrorCode.subscriptionRequired) {
+    debugPrint('project needs a subscription: ${e.actionUrl}');
   }
 }
 ```
 
-Full list of codes in the `ErrorCode` class.
+| Code | Meaning |
+|------|---------|
+| `subscription_required` | Project subscription not active (`subscribeUrl`). |
+| `credits_required` | Allowance exhausted and balance empty (`topupUrl`). |
+| `attestation_rejected` | Apple or AppAttest rejected this install — terminal until reinstall. |
+| `service_unavailable` | Temporary service condition; retryable (the SDK backs off automatically). |
+| `network` | Device-side transport failure; retryable. |
+| `debug_mode_release_blocked` | `setDebugMode` called in a Release build. |
+| `invalid_argument` | Malformed call input. |
 
-## Debug modes
-
-The iOS simulator cannot produce a real App Attest attestation. Use
-`sandbox` (network, no Apple attestation) or `local` (no network, inline
-stubs) for dev:
-
-```dart
-if (kDebugMode) {
-  await AppAttest.setDebugMode(DebugMode.sandbox);
-  // or:
-  await AppAttest.setDebugMode(DebugMode.local, {
-    'OPENAI_API_KEY': 'sk-test-xxx',
-  });
-}
-```
-
-In a Release build of your app, `sandbox` and `local` throw
-`AppAttestError(code: ErrorCode.debugModeReleaseBlocked)`. The native
-SDK strips those modes at compile time; the Dart → Swift boundary adds
-a second-layer runtime guard.
-
-## Configuration
-
-### Info.plist
-
-| Key | Required | Purpose |
-|-----|----------|---------|
-| `CFBundleIdentifier` | yes | read by the SDK to identify your app |
-| `APPATTEST_TEAM_ID` | fallback | use when the SDK can't auto-detect your Team ID |
-| `APPATTEST_ENVIRONMENT` | yes for non-production | `"production"` or `"development"` — must match the app's `appattest-environment` entitlement |
-
-### Entitlement
-
-Add `com.apple.developer.devicecheck.appattest-environment` to your
-iOS target's `.entitlements` file. Value:
-- `development` for debug builds — register your bundle under the
-  `development` env in the AppAttest dashboard.
-- `production` for App Store builds — register under `production`.
-
-## Regenerating the Pigeon bindings
-
-The Dart ↔ Swift boundary is generated from
-`pigeons/messages.dart` by [Pigeon](https://pub.dev/packages/pigeon).
-
-```bash
-dart run pigeon --input pigeons/messages.dart
-```
-
-Outputs:
-- `lib/src/messages.g.dart`
-- `ios/Classes/Messages.g.swift`
-
-Both generated files are checked in. Edit the contract in
-`pigeons/messages.dart` and regenerate — don't hand-edit the generated
-files.
-
-## Metering
-
-Only `environment=production` attestations count toward billable plan
-meters. Dev-environment attestations are tracked separately in sandbox
-counters for visibility but **never billed**.
+(Compare via the `ErrorCode` constants — `ErrorCode.subscriptionRequired`
+etc.; the values are the snake_case strings above.)
 
 ## License
 
-MIT. See [LICENSE](../../LICENSE) at the monorepo root.
+MIT © 2026 Bault LLC. See [LICENSE](LICENSE).

@@ -9,10 +9,11 @@ secret delivery for iOS.
 
 ## Platform support
 
-- **iOS 14+** — full support. Uses Apple's `DCAppAttestService`.
+- **iOS 17+** — full support. Uses Apple's `DCAppAttestService` via the
+  native AppAttest Swift SDK.
 - **Android / other** — not supported. Apple's App Attest is iOS-only and
-  there is no equivalent on other platforms. Calls on other runtimes
-  throw `AppAttestError` with code `"attestation_unsupported"`.
+  there is no equivalent on other platforms; the native module is not
+  registered outside iOS.
 
 ## Install
 
@@ -29,121 +30,121 @@ monorepo). That's wired automatically through the pod's `s.dependency`.
 
 ## Quick start
 
-```ts
-import { AppAttest } from '@appattest/react-native';
+```tsx
+import { AppAttest, useSecret } from '@appattest/react-native';
 
-// On app launch:
-await AppAttest.attest();
-await AppAttest.sync();
+// Once, at app launch:
+AppAttest.start();
 
-// Later, anywhere:
-const openaiKey = await AppAttest.secret('OPENAI_API_KEY');
+// In any component — re-renders when secrets land:
+function Chat() {
+  const openaiKey = useSecret('OPENAI_API_KEY');
+  if (!openaiKey) return <Splash />;
+  return <ChatView apiKey={openaiKey} />;
+}
 ```
 
-`attest()` registers the device once (persists across launches).
-`sync()` pulls every secret for this app's environment.
-`secret(name)` reads from the local Keychain cache — no network.
-
-## Rotation
-
-On app foreground, or whenever you want to pick up a rotated secret:
+Outside components:
 
 ```ts
-await AppAttest.refreshIfStale();
-// hits GET /v1/secrets/fingerprint; re-syncs only if the env changed
+await AppAttest.waitForReady();
+const key = await AppAttest.getSecret('OPENAI_API_KEY'); // string | null
+const all = await AppAttest.getAllSecrets();             // Record<string, string>
 ```
 
-Returns `true` if a re-sync happened.
+`start()` is fire-and-forget: the first launch attests the device once
+(persists across launches), then syncs secrets; later launches hydrate
+from the Keychain and re-sync in the background. Foreground re-entry
+re-syncs automatically — your app does no lifecycle wiring.
+
+## State
+
+```ts
+import { AppAttest, useAppAttestState } from '@appattest/react-native';
+
+const state = useAppAttestState(); // { name, error? }, re-renders on change
+
+// or imperatively:
+const s = await AppAttest.getState();
+const unsubscribe = AppAttest.addStateListener((s) => console.log(s.name));
+```
+
+`state.name` is one of `'initializing' | 'attesting' | 'syncing' | 'ready' |
+'subscription_required' | 'credits_required' | 'unavailable'`. The
+non-`ready` terminal states carry `state.error`.
+
+**End-user-facing apps:** show a generic "temporarily unavailable" notice
+for the non-`ready` terminal states. **Developer / staff builds:** log the
+full error (including `actionUrl`) so the developer knows whether to
+subscribe, top up, or investigate.
+
+## Refresh & recovery
+
+```ts
+await AppAttest.retry();            // re-run the sync (no re-attestation)
+await AppAttest.invalidateBundle(); // drop the cached bundle, force a fresh sync
+await AppAttest.reset();            // full wipe; next start() re-attests
+```
+
+`retry()` recovers from transient failures. `invalidateBundle()` forces
+fresh secret bytes when you don't want to wait for the next rotation
+pickup. `reset()` is the nuclear option, for sign-out / data-clearing flows.
+
+## Debug mode (simulator, tests, CI)
+
+The simulator can't produce a real App Attest attestation. Use local stubs:
+
+```ts
+if (__DEV__) {
+  await AppAttest.setDebugMode('local', {
+    OPENAI_API_KEY: 'sk-test-stub',
+  });
+}
+AppAttest.start();
+```
+
+Pass `null` to return to real attestation. The native debug surface is
+`#if DEBUG`-gated — physically absent from Release builds, which always
+run real attestation; calling it there rejects with
+`debug_mode_release_blocked`.
+
+Dev builds on **real devices** don't need debug mode — they attest for
+real and read the sandbox bucket (below).
+
+## Buckets (sandbox vs production)
+
+There is no environment configuration. Apple's AAGUID in each attestation
+determines the bucket server-side: dev / TestFlight builds read the
+**sandbox** secrets column; App Store builds read **production**. Same
+code in both, no flags.
 
 ## Error handling
 
-All methods reject with `AppAttestError`:
+All methods reject with `AppAttestError` (`code`, plus `subscribeUrl` /
+`topupUrl` / `actionUrl` on the billing cases):
 
 ```ts
 import { AppAttest, AppAttestError, ErrorCode } from '@appattest/react-native';
 
 try {
-  await AppAttest.attest();
-} catch (err) {
-  if (err instanceof AppAttestError) {
-    switch (err.code) {
-      case ErrorCode.SubscriptionRequired:
-        // show a "subscribe to go live" prompt
-        break;
-      case ErrorCode.AttestationUnsupported:
-        // older device or missing entitlement — degrade gracefully
-        break;
-      case ErrorCode.RateLimited:
-        // back off and retry
-        break;
-    }
+  await AppAttest.waitForReady();
+} catch (e) {
+  if (e instanceof AppAttestError && e.code === ErrorCode.SubscriptionRequired) {
+    console.log('project needs a subscription:', e.actionUrl);
   }
 }
 ```
 
-Full list of codes in the `ErrorCode` export. Recovery patterns match
-the Swift SDK's error-handling documentation.
-
-## Debug modes
-
-The iOS simulator cannot produce a real App Attest attestation. Use
-`sandbox` (network, no Apple attestation) or `local` (no network, inline
-stubs) for dev:
-
-```ts
-if (__DEV__) {
-  await AppAttest.setDebugMode('sandbox');
-  // or:
-  await AppAttest.setDebugMode('local', {
-    OPENAI_API_KEY: 'sk-test-xxx',
-  });
-}
-```
-
-In a Release build of your app, `sandbox` and `local` reject at runtime
-with `AppAttestError(code: 'debug_mode_release_blocked')`. The native
-SDK strips those modes at compile time; the JS shim adds a second-layer
-runtime guard that looks at whether the native framework was compiled
-under `#if DEBUG`.
-
-## Configuration
-
-### Info.plist
-
-| Key | Required | Purpose |
-|-----|----------|---------|
-| `CFBundleIdentifier` | yes | read by the SDK to identify your app |
-| `APPATTEST_TEAM_ID` | fallback | use when the SDK can't auto-detect your Team ID |
-| `APPATTEST_ENVIRONMENT` | yes for non-production | `"production"` or `"development"` — must match the app's `appattest-environment` entitlement |
-
-### Entitlement
-
-Add `com.apple.developer.devicecheck.appattest-environment` to your
-Xcode target's `.entitlements` file. Value:
-- `development` for debug builds — register your bundle under the
-  `development` env in the AppAttest dashboard.
-- `production` for App Store builds — register under `production`.
-
-## Metering
-
-Only `environment=production` attestations count toward billable plan
-meters. Dev-environment attestations are tracked separately in sandbox
-counters for visibility but **never billed**.
-
-## Troubleshooting
-
-| Error code | Likely cause |
-|---|---|
-| `team_id_unavailable` | Xcode didn't bake a Team ID into the build. Re-set the Team in Signing & Capabilities. |
-| `unknown_app` | Your bundle isn't registered in the dashboard, or under the wrong env. |
-| `attestation_unsupported` | Running on simulator (use `sandbox` mode) or older device. |
-| `verification_failed` | Entitlement's `appattest-environment` doesn't match what the API expects. |
-
-## Reference app
-
-A minimal reference RN app lives at `example/` in the same repo. It
-exercises `attest → sync → secret` end-to-end.
+| Code | Meaning |
+|------|---------|
+| `subscription_required` | Project subscription not active (`subscribeUrl`). |
+| `credits_required` | Allowance exhausted and balance empty (`topupUrl`). |
+| `attestation_rejected` | Apple or AppAttest rejected this install — terminal until reinstall. |
+| `service_unavailable` | Temporary service condition; retryable (the SDK backs off automatically). |
+| `network` | Device-side transport failure; retryable. |
+| `debug_mode_release_blocked` | `setDebugMode` called in a Release build. |
+| `invalid_argument` | Malformed call input. |
 
 ## License
 
-MIT. See the [LICENSE](../../LICENSE) at the monorepo root.
+MIT © 2026 Bault LLC. See [LICENSE](LICENSE).

@@ -37,7 +37,7 @@
     "url": "git+https://github.com/AppAttest/appAttest-sdk.git",
     "directory": "bridges/capacitor"
   },
-  "author": "AppAttest",
+  "author": "Bault LLC",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/AppAttest/appAttest-sdk/issues"

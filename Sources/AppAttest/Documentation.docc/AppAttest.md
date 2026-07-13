@@ -45,6 +45,8 @@ so SwiftUI re-renders any view that reads `secrets` or
 
 - ``AppAttestClient``
 - ``AppAttestError``
+- ``PersistenceError``
+- ``AppAttestClient/SecretLookup``
 
 ### Modes and configuration
 

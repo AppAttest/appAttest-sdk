@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'AppAttest'
-  s.version          = '0.1.0'
+  s.version          = '0.2.0'
   s.summary          = 'Zero-config Swift SDK for AppAttest — App-Attest-gated secret delivery for iOS and macOS.'
   s.description      = <<~DESC
     AppAttest delivers API keys and app secrets to your iOS and macOS binary,

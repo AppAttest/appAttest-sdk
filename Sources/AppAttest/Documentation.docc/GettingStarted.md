@@ -64,6 +64,14 @@ view that reads `secrets` or ``AppAttestClient/state`` when either
 changes. Pre-sync, `secrets[key]` returns `nil`; once the sync resolves,
 every registered key is present.
 
+> Tip: A bare `secrets[key]` returns `nil` whether the sync just hasn't
+> finished yet *or* the key is genuinely absent (a typo, or never
+> registered in the dashboard). When you need to tell those apart, use
+> ``AppAttest/secret(_:)``, which returns a ``AppAttestClient/SecretLookup``
+> (`.value` / `.notReady` / `.absent`) instead of collapsing both cases to
+> `nil`. In DEBUG builds an unknown key after sync also logs a fault naming
+> the typo. See <doc:ErrorHandling> for the full lookup model.
+
 ## Awaiting readiness in a bootstrap
 
 If you need a secret synchronously for an early-boot configuration
@@ -77,12 +85,22 @@ struct BootstrapView: View {
         Group { if configured { MainView() } else { SplashView() } }
             .task {
                 try? await AppAttest.waitForReady()
-                APIClient.configure(token: AppAttest.secrets["BACKEND_KEY"]!)
+                if case .value(let token) = AppAttest.secret("BACKEND_KEY") {
+                    APIClient.configure(token: token)
+                }
                 configured = true
             }
     }
 }
 ```
+
+This is the *imperative* read path — the `.task` closure runs code, not a
+view body — so it uses ``AppAttest/secret(_:)`` rather than the reactive
+`secrets` dict. No force-unwrap: if the key is missing, `.value` simply
+doesn't match and you skip the configure step instead of crashing. See
+<doc:ErrorHandling> for when to read `secrets` (reactive) versus
+``AppAttest/secret(_:)`` / ``AppAttest/currentSecret(_:)`` (imperative /
+off-main).
 
 ## Gating UI on lifecycle state
 

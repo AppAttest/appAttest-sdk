@@ -12,6 +12,22 @@ struct KeychainError: Error, CustomStringConvertible {
     var description: String { "Keychain error \(osStatus)" }
 }
 
+/// The persistence contract `AppAttestClient` depends on. `KeychainStore`
+/// is the sole production conformer; the protocol exists purely so a
+/// `#if DEBUG` test can inject a failing double (e.g. a store that throws
+/// `KeychainError` on every write) to drive the persistence-degraded signal
+/// without a real Keychain. Not public — the seam is internal-only, per the
+/// SDK public-API-vs-test-rig boundary rule.
+protocol KeychainStoring: Sendable {
+    func saveCredentials(_ credentials: AttestCredentials) throws
+    func loadCredentials() throws -> AttestCredentials?
+    func deleteCredentials() throws
+    func saveSecrets(_ bundle: SecretBundle) throws
+    func loadSecrets() throws -> SecretBundle?
+    func deleteSecrets() throws
+    func deleteAll() throws
+}
+
 /// Keychain-backed persistence for `AttestCredentials` and `SecretBundle`.
 ///
 /// Access class is always `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` —
@@ -22,7 +38,7 @@ struct KeychainError: Error, CustomStringConvertible {
 /// Not an actor — each call opens and closes its own Security-framework query;
 /// there's no shared mutable state to protect. All methods are `throws` and
 /// `Sendable`-safe.
-struct KeychainStore: Sendable {
+struct KeychainStore: KeychainStoring, Sendable {
     let serviceIdentifier: String
     let environmentTag: String // "prod" | "sandbox" | "local"
 

@@ -5,6 +5,42 @@ Versioning: SemVer (pre-1.0 minor bumps may break source compatibility).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-12
+
+Reliability and observability release: a foreground re-sync bug fix, a new
+non-fatal signal when device storage is degraded, thread-safe secret reads for
+off-main callers, and expanded failure-handling documentation.
+
+### Added
+- **Non-fatal persistence-degraded signal.** When the Keychain can't be written
+  or read, the SDK no longer fails silently — it surfaces the problem without
+  breaking a sync. New public `PersistenceError` (which artifact, which
+  operation, the underlying OS status, and whether it affects billing) plus
+  `persistenceDegraded`, `lastPersistenceError`, and an `onPersistenceIssue`
+  sink on `AppAttestClient` (and the `AppAttest.*` forwarders). A degraded
+  device keeps serving secrets from memory; the signal lets the host app react
+  (log, warn, prompt) instead of guessing.
+- **Thread-safe, off-main secret reads.** Secrets can now be read from any
+  thread with no `@MainActor` hop, so signing/networking closures that run off
+  the main actor no longer have to `await`. New `nonisolated` reads
+  `currentSecrets`, `currentSecret(_:)`, and `availableKeys`, plus
+  `secret(_:) -> SecretLookup` — a keyed lookup that disambiguates the three
+  states a bare `secrets[key] == nil` collapses together: `.value`,
+  `.notReady`, and `.absent(available:)`. The existing `@Observable` `secrets`
+  dictionary is unchanged as the reactive, main-actor mirror.
+
+### Fixed
+- **Foreground re-sync no longer stops working after the first sync.** Bringing
+  the app to the foreground reliably re-syncs every time; previously the
+  re-sync could stop firing after the initial one.
+
+### Changed
+- **Expanded failure-handling documentation.** New guidance on the full failure
+  surface — the persistence-degraded signal, disambiguating unknown secret
+  keys, and reading secrets reactively (SwiftUI) versus imperatively (off-main
+  signing closures). Replaced an unsafe force-unwrap example in Getting Started
+  with a safe keyed read.
+
 ## [0.1.0] - 2026-05-29
 
 First public release. A zero-configuration Swift SDK that delivers your app's

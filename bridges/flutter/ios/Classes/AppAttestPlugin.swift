@@ -102,16 +102,16 @@ public class AppAttestPlugin: NSObject, FlutterPlugin, AppAttestHostApi {
         Task { @MainActor in
             switch name {
             case nil, "production":
-                // `debugMode` is #if DEBUG-only in the SDK; in Release there is
+                // `debug` is #if DEBUG-only in the SDK; in Release there is
                 // nothing to clear (production is the only mode), so guard the
                 // write or the plugin fails to compile for Release.
                 #if DEBUG
-                AppAttestClient.shared.debugMode = nil
+                AppAttestClient.shared.debug = nil
                 #endif
                 completion(.success(()))
             #if DEBUG
             case "local":
-                AppAttestClient.shared.debugMode = .local(stubs: stubs ?? [:])
+                AppAttestClient.shared.debug = .local(stubs: stubs ?? [:])
                 completion(.success(()))
             #else
             case "local":

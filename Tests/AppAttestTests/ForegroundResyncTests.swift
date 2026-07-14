@@ -27,7 +27,7 @@ final class ForegroundResyncTests: XCTestCase {
     /// (0 spawns), passes on the fix.
     func testForegroundReSyncFiresRepeatedlyAfterCompletedSync() async throws {
         let client = AppAttestClient()
-        client.debugMode = .local(stubs: ["K": "V"])
+        client.debug = .local(stubs: ["K": "V"])
         client.start()
         try await client.waitForReady()
         XCTAssertEqual(client.state, .ready, "launch sync should complete to .ready")
@@ -54,7 +54,7 @@ final class ForegroundResyncTests: XCTestCase {
     /// over-fire.
     func testForegroundDoesNotSpawnWhileSyncInFlight() async throws {
         let client = AppAttestClient()
-        client.debugMode = .local(stubs: ["K": "V"])
+        client.debug = .local(stubs: ["K": "V"])
 
         client._testSetState(.syncing)
         let syncingBaseline = client._syncSpawnCount

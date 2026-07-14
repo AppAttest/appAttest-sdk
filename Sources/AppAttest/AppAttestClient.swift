@@ -115,11 +115,19 @@ public final class AppAttestClient {
     /// unavailable. Debug-only; the case, the property, the backing store,
     /// and the type itself are `#if DEBUG`-stripped in Release builds so
     /// none of this can leak into production.
-    public var debugMode: DebugMode? {
-        get { _debugMode }
-        set { _debugMode = newValue }
+    public var debug: DebugMode? {
+        get { _debug }
+        set { _debug = newValue }
     }
     #endif
+
+    /// The server bucket a **Release** build attests against. Default
+    /// ``ReleaseBucket/production``. Compiled into all builds — a routing
+    /// label carrying no secrets and no offline path, so it is safe to ship.
+    /// Ignored in Debug builds (which always declare ``ReleaseBucket/staging``
+    /// — a debug build is a development-environment build). Set before
+    /// ``start()``.
+    public var release: ReleaseBucket = .production
 
     // MARK: - Configuration (internal-only, hardcoded)
 
@@ -130,7 +138,7 @@ public final class AppAttestClient {
     // MARK: - Internals
 
     #if DEBUG
-    private var _debugMode: DebugMode?
+    private var _debug: DebugMode?
     #endif
     private var hasStarted = false
     private var syncTask: Task<Void, Never>?
@@ -215,13 +223,14 @@ public final class AppAttestClient {
     ///    observer for fingerprint refresh on foreground re-entry.
     /// 3. Spawns the background sync `Task` and returns.
     ///
-    /// Zero-argument. The env bucket (sandbox vs production) is
-    /// derived entirely from Apple's AAGUID inside the App Attest
-    /// attestation object — edge reads it server-side and stamps it
-    /// into the attestToken's `env` claim. The SDK is bucket-blind:
-    /// no parameter, no Info.plist override, no public way to influence
-    /// which bucket serves you. Dev/TestFlight builds → sandbox column;
-    /// App Store builds → production column.
+    /// Zero-argument. The bucket the SDK attests against is set by build type
+    /// + configuration, not by a `start()` parameter: a **Debug** build always
+    /// declares `staging`; a **Release** build declares ``release`` (default
+    /// ``ReleaseBucket/production``). The SDK sends that declaration on
+    /// `/v1/attest`; edge resolves it against Apple's AAGUID (the allowed
+    /// bucket a development build may reach only `staging`; a production build
+    /// may reach either) and stamps the result into the attestToken's signed
+    /// `env` claim. There is no Info.plist override and no per-call argument.
     public func start() {
         if hasStarted { return }
         hasStarted = true
@@ -416,11 +425,12 @@ public final class AppAttestClient {
     /// production binaries.
     ///
     /// Previously had a `.sandbox` case that synthesized fake
-    /// attestations for development. That case is gone —
-    /// real-device dev/TestFlight builds produce real
-    /// sandbox attestations via Apple's AAGUID derivation, so there is
-    /// no need (and no safe way) to synthesize one. For simulators and
-    /// previews where App Attest is unavailable, use `.local(stubs:)`.
+    /// attestations for development. That case is gone — real-device
+    /// builds produce real App Attest attestations and edge resolves the
+    /// bucket from Apple's AAGUID (a development-signed build resolves to
+    /// the staging bucket), so there is no need (and no safe way) to
+    /// synthesize one. For the simulator and previews, where App Attest is
+    /// unavailable, use `.local(stubs:)`.
     #if DEBUG
     public enum DebugMode: Sendable, Equatable {
         /// No network, no attestation, no Keychain. `secrets` returns
@@ -434,6 +444,63 @@ public final class AppAttestClient {
         }
     }
     #endif
+
+    // MARK: - Declared bucket resolution
+
+    /// Pure, build-agnostic resolution of the bucket this build declares on
+    /// `POST /v1/attest`. Factored out so the full build×config matrix is
+    /// unit-testable inside a Debug test binary (which cannot otherwise
+    /// exercise the Release branch): a **Debug** build is a
+    /// development-environment build → always ``ReleaseBucket/staging``; a
+    /// **Release** build honors the developer's ``release`` choice.
+    nonisolated static func resolveDeclaredBucket(isDebugBuild: Bool, release: ReleaseBucket) -> ReleaseBucket {
+        isDebugBuild ? .staging : release
+    }
+
+    /// The bucket string this build sends as the `bucket` field on
+    /// `POST /v1/attest`. Debug → `"staging"`; Release → the ``release`` choice
+    /// (`"production"` by default, `"staging"` if opted in).
+    var declaredBucketWireValue: String {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return Self.resolveDeclaredBucket(isDebugBuild: isDebugBuild, release: release).wireValue
+    }
+
+    // MARK: - Unsupported-environment resolution
+
+    /// How the SDK reacts when App Attest is unavailable
+    /// (`DCAppAttestService.isSupported == false`). Factored into a pure
+    /// function so the full branching matrix is unit-testable **without**
+    /// actually tripping `fatalError`.
+    enum UnsupportedEnvironment: Equatable {
+        /// Simulator with no `.local` set — crash LOUD with an actionable
+        /// message. Guarded `#if targetEnvironment(simulator)` at the call
+        /// site so it can never exist in a shipped device binary.
+        case simulatorFatalError
+        /// A SwiftUI #Preview with no `.local` set — never crash; render a safe
+        /// empty state and emit a loud OSLog `.fault`.
+        case previewSafeEmpty
+        /// A real device whose hardware cannot attest (rare) — never crash;
+        /// fail-open to `.unavailable`, keeping any cached secrets serving.
+        case realDeviceFailOpen
+    }
+
+    /// #Preview wins over simulator so a preview canvas never crashes even
+    /// though it runs in a simulator environment; a genuine unsupported real
+    /// device fails open.
+    nonisolated static func resolveUnsupportedEnvironment(isSimulator: Bool, isPreview: Bool) -> UnsupportedEnvironment {
+        if isPreview  { return .previewSafeEmpty }
+        if isSimulator { return .simulatorFatalError }
+        return .realDeviceFailOpen
+    }
+
+    /// `true` when the process is rendering a SwiftUI #Preview.
+    var isRunningInSwiftUIPreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
 
     // MARK: - Background work
 
@@ -461,7 +528,7 @@ public final class AppAttestClient {
         // Local debug mode: short-circuit, no network. Debug-only; the
         // entire `DebugMode` surface and its short-circuit compile out
         // of Release.
-        if case .local(let stubs) = debugMode {
+        if case .local(let stubs) = debug {
             setSecrets(stubs)
             transition(to: .ready)
             return
@@ -498,12 +565,12 @@ public final class AppAttestClient {
     }
 
     /// Returns a non-expired attestToken. Re-attests if needed. Stores in
-    /// Keychain. The bucket is encoded inside the attestToken's
-    /// signed `env` claim, set by edge based on Apple's AAGUID. The SDK
-    /// neither computes nor validates it — if a stored credential's
-    /// env doesn't match what edge expects (e.g. user reinstalled with
-    /// a different signing identity that flipped the AAGUID), edge
-    /// rejects on use and the SDK's self-heal path re-attests.
+    /// Keychain. The resolved bucket is encoded inside the attestToken's
+    /// signed `env` claim: the SDK declares its desired bucket at
+    /// `/v1/attest`, edge resolves it against Apple's AAGUID and stamps the
+    /// claim. If a stored credential's env no longer matches what edge expects
+    /// (e.g. the user reinstalled with a signing identity that flipped the
+    /// AAGUID), edge rejects on use and the SDK's self-heal path re-attests.
     private func ensureCredentials(skipAttestIfPossible: Bool) async throws -> AttestCredentials {
         if let existing = try primaryStoreOrNil()?.loadCredentials(),
            !existing.isExpiringSoon() {
@@ -519,15 +586,54 @@ public final class AppAttestClient {
 
     /// Run the full `POST /v1/attest/challenge` → `attestKey` →
     /// `POST /v1/attest` flow. Returns a new credential persisted to
-    /// Keychain. The env bucket is derived by edge from Apple's
-    /// AAGUID in the attestation `authData` — SDK doesn't compute or
-    /// send it.
+    /// Keychain. The SDK **declares** its desired bucket (`staging` /
+    /// `production`, per ``declaredBucketWireValue``) on `/v1/attest`; edge
+    /// resolves it against Apple's AAGUID (the allowed-bucket constraint) and
+    /// stamps the result into the attestToken's signed `env` claim.
     private func performAttestation() async throws -> AttestCredentials {
-        let context = try resolveContext()
-
+        // Environment guard FIRST — independent of context resolution. On the
+        // simulator / in a #Preview / on rare unsupported hardware, App Attest
+        // emits nothing (no Secure Enclave); decide how to react before any
+        // other work. (`.local` short-circuits earlier in `runSync`, so if we
+        // are here in a Debug build the developer did NOT set `.local`.)
         if !AttestationEngine.isSupported {
-            throw AppAttestError.attestationRejected(reason: "DCAppAttestService.isSupported = false (simulator or unsupported device). Set AppAttestClient.shared.debugMode = .local(stubs:) for previews and simulator development.")
+            #if targetEnvironment(simulator)
+            let isSimulator = true
+            #else
+            let isSimulator = false
+            #endif
+            switch Self.resolveUnsupportedEnvironment(isSimulator: isSimulator,
+                                                      isPreview: isRunningInSwiftUIPreview) {
+            case .simulatorFatalError:
+                #if targetEnvironment(simulator)
+                // Compiled in ONLY for the simulator target, so this crash can
+                // never exist in a shipped device binary.
+                fatalError("""
+                    AppAttest: App Attest is unavailable on the simulator (no Secure \
+                    Enclave). Set AppAttest.debug = .local(stubs: [...]) for simulator \
+                    and #Preview development. This crash is compiled out of every \
+                    device build.
+                    """)
+                #else
+                // Unreachable on a device build (isSimulator == false, so the
+                // resolver never returns .simulatorFatalError). Fail-open
+                // rather than trap.
+                throw AppAttestError.serviceUnavailable(reason: "(temporarily_unavailable)")
+                #endif
+            case .previewSafeEmpty:
+                // #Preview with no `.local`. Never crash — emit a loud fault so
+                // the developer sees exactly what to do, then degrade to a safe
+                // empty `.unavailable` state (no secrets, no network).
+                logger.fault("AppAttest: running in a SwiftUI #Preview without stubs. Set AppAttest.debug = .local(stubs: [...]) in your preview to supply secret values. Rendering an empty state until then.")
+                throw AppAttestError.serviceUnavailable(reason: "(temporarily_unavailable)")
+            case .realDeviceFailOpen:
+                // Rare unsupported hardware on a real device. Never crash;
+                // fail-open to `.unavailable` and keep cached secrets serving.
+                throw AppAttestError.serviceUnavailable(reason: "(temporarily_unavailable)")
+            }
         }
+
+        let context = try resolveContext()
 
         let client = makeAPIClient()
         let challenge = try await client.requestChallenge()
@@ -540,7 +646,8 @@ public final class AppAttestClient {
             keyId: keyId,
             bundleId: context.bundleId,
             attestation: attestationB64,
-            challenge: challenge
+            challenge: challenge,
+            bucket: declaredBucketWireValue
         )
         let response = try await client.attest(body: body)
 
@@ -754,11 +861,11 @@ public final class AppAttestClient {
     }
 
     private var environmentTag: String {
-        // SDK is bucket-blind. A single keychain scope per bundleId
-        // is sufficient. If the same bundleId ever produces both sandbox
-        // and production attestations on the same device (debug build +
-        // TestFlight build of the same app), edge's env-claim mismatch
-        // on use triggers the self-heal re-attest path.
+        // A single keychain scope per bundleId is sufficient. If the same
+        // bundleId ever produces attestations resolved to different buckets on
+        // the same device (e.g. a debug build → staging bucket, then a
+        // distribution build → production bucket of the same app), edge's
+        // env-claim mismatch on use triggers the self-heal re-attest path.
         return "v1"
     }
 
@@ -888,11 +995,23 @@ public final class AppAttestClient {
 /// from anywhere in the host app — observable tracking in SwiftUI views
 /// still works because the underlying property lives on the singleton.
 public enum AppAttest {
-    /// Synchronous, idempotent setup. Zero-argument
-    /// (bucket selection is AAGUID-derived server-side).
+    /// Synchronous, idempotent setup. Zero-argument. The bucket is set by
+    /// build type + ``release`` (see ``AppAttestClient/start()``), declared to
+    /// edge and resolved against Apple's AAGUID server-side.
     @MainActor
     public static func start() {
         AppAttestClient.shared.start()
+    }
+
+    /// The server bucket a **Release** build attests against. Default
+    /// ``ReleaseBucket/production``. Set before ``start()``. Compiled into all
+    /// builds (a routing label, no secrets). Ignored in Debug builds, which
+    /// always declare ``ReleaseBucket/staging``. See
+    /// ``AppAttestClient/release``.
+    @MainActor
+    public static var release: ReleaseBucket {
+        get { AppAttestClient.shared.release }
+        set { AppAttestClient.shared.release = newValue }
     }
 
     /// Synchronous secret lookup. `nil` if not yet synced or absent.
@@ -978,9 +1097,9 @@ public enum AppAttest {
     /// Debug-only — the entire surface is `#if DEBUG`-stripped in Release
     /// builds.
     @MainActor
-    public static var debugMode: AppAttestClient.DebugMode? {
-        get { AppAttestClient.shared.debugMode }
-        set { AppAttestClient.shared.debugMode = newValue }
+    public static var debug: AppAttestClient.DebugMode? {
+        get { AppAttestClient.shared.debug }
+        set { AppAttestClient.shared.debug = newValue }
     }
     #endif
 }

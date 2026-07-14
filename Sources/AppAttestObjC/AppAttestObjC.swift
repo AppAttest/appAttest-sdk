@@ -91,10 +91,37 @@ public final class AppAttestObjCClient: NSObject {
 
     /// Synchronous, idempotent setup.
     ///
-    /// No bucket argument. Apple's AAGUID determines the bucket
-    /// server-side; the SDK is bucket-blind.
+    /// No bucket argument. A Debug build declares `staging`; a Release build
+    /// declares whatever ``setRelease(_:completion:)`` selected (default
+    /// `production`). Edge resolves the declaration against Apple's AAGUID.
     @objc public func start() {
         Task { @MainActor in AppAttestClient.shared.start() }
+    }
+
+    /// Select the server bucket a **Release** build attests against.
+    /// Valid values: `"production"` (default) or `"staging"`. Ignored in Debug
+    /// builds (which always declare `staging`). Set before ``start()``.
+    /// Compiled into all builds — a routing label, no secrets, no free path.
+    @objc public func setRelease(
+        _ name: String,
+        completion: @escaping (NSError?) -> Void
+    ) {
+        Task { @MainActor in
+            switch name {
+            case "production":
+                AppAttestClient.shared.release = .production
+                completion(nil)
+            case "staging":
+                AppAttestClient.shared.release = .staging
+                completion(nil)
+            default:
+                completion(nsError(
+                    code: "invalid_argument",
+                    message: "unknown release bucket: \(name). Use \"production\" or \"staging\".",
+                    status: 400
+                ))
+            }
+        }
     }
 
     /// Re-runs the background sync.
@@ -144,7 +171,7 @@ public final class AppAttestObjCClient: NSObject {
     /// `"sandbox"` is not a valid value. Real dev/TestFlight
     /// builds produce real sandbox attestations via Apple's AAGUID —
     /// there is no need (and no safe way) to synthesize one client-side.
-    @objc public func setDebugMode(
+    @objc public func setDebug(
         _ name: String?,
         stubs: [String: String]?,
         completion: @escaping (NSError?) -> Void
@@ -153,15 +180,15 @@ public final class AppAttestObjCClient: NSObject {
             switch name {
             case nil, "production":
                 #if DEBUG
-                AppAttestClient.shared.debugMode = nil
+                AppAttestClient.shared.debug = nil
                 #endif
-                // In Release, `debugMode` doesn't exist on the Swift side;
+                // In Release, `debug` doesn't exist on the Swift side;
                 // production is the only mode anyway, so resetting to it is
                 // a no-op.
                 completion(nil)
             #if DEBUG
             case "local":
-                AppAttestClient.shared.debugMode = .local(stubs: stubs ?? [:])
+                AppAttestClient.shared.debug = .local(stubs: stubs ?? [:])
                 completion(nil)
             #else
             case "local":

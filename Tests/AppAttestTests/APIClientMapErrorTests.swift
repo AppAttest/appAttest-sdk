@@ -79,6 +79,38 @@ final class APIClientMapErrorTests: XCTestCase {
         XCTAssertEqual(err, .attestationRejected(reason: "(attestation_failed)"))
     }
 
+    // MARK: - 403 bucket_not_permitted
+
+    func test403BucketNotPermittedMapsToTerminalAttestationRejected() {
+        // A development-signed build declared the production bucket. Edge
+        // rejects with 403 bucket_not_permitted. The SDK maps it to a
+        // TERMINAL, non-retried `.attestationRejected` (attestationRejected is
+        // the terminal, no-auto-retry state — see the state machine).
+        let actionable = "This build attested with the development App Attest environment, which cannot access the production secret bucket. Add the com.apple.developer.devicecheck.appattest-environment=production entitlement to your distribution build, or set AppAttest.release = .staging."
+        let json = #"{"code":"bucket_not_permitted","message":"\#(actionable)"}"#
+        let err = client().mapError(status: 403, data: Data(json.utf8))
+        guard case .attestationRejected(let reason) = err else {
+            XCTFail("expected .attestationRejected, got \(err)")
+            return
+        }
+        // Unlike the scrubbed attestation-failure codes, the server's
+        // actionable configuration message is carried through VERBATIM so the
+        // developer sees the fix (it contains no infrastructure detail).
+        XCTAssertEqual(reason, actionable,
+                       "the actionable server message must pass through, not be scrubbed to a code")
+        XCTAssertTrue(reason.contains("appattest-environment=production"))
+        XCTAssertTrue(reason.contains("AppAttest.release = .staging"))
+    }
+
+    func test403WithoutBucketCodeIsNotSpecialCased() {
+        // Only bucket_not_permitted at 403 gets the actionable-message path.
+        // A different 403 code falls through to the generic .network mapping.
+        let err = client().mapError(status: 403, data: envelope("forbidden"))
+        if case .attestationRejected = err {
+            XCTFail("a non-bucket 403 must not map to .attestationRejected")
+        }
+    }
+
     // bundle_unavailable + unknown_app are special-cased into a developer
     // hint BEFORE the 5xx allow-list — verify that path still wins.
     func test5xxBundleUnavailableTakesDeveloperHintPath() {

@@ -15,9 +15,16 @@ import Security
 /// no `APPATTEST_PROJECT_ID`, no ULIDs, no dashboard-copied identifiers.
 /// See `Learnings/the-canonical-identifier-is-apples-not-yours.md`.
 ///
-/// **Bucket** is not part of context — sandbox vs production is
-/// derived from the device's attestation (debug builds resolve to
-/// sandbox; TestFlight + App Store builds resolve to production).
+/// **Bucket** is not part of context — the served bucket (staging vs
+/// production) is resolved by edge from (Apple's AAGUID ∩ the bucket the SDK
+/// declares on `/v1/attest`). The AAGUID is a **build-time** property, not a
+/// distribution-type one: a development-signed build resolves to the
+/// development AAGUID → the staging bucket. A distribution build (TestFlight,
+/// ad-hoc, Enterprise) that LACKS the
+/// `com.apple.developer.devicecheck.appattest-environment=production`
+/// entitlement ALSO attests with the development AAGUID → staging bucket. Only
+/// a build carrying that production entitlement attests with the production
+/// AAGUID and may reach the production bucket.
 ///
 /// **Team ID detection.** No public API queries the Team ID at runtime, so
 /// the SDK tries in order:

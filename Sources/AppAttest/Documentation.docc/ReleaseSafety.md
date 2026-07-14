@@ -12,12 +12,12 @@ making non-production code paths physically absent from Release builds.
 ## The `#if DEBUG` boundary
 
 The entire ``DebugMode`` type and its setter on
-``AppAttestClient/debugMode`` are wrapped in `#if DEBUG`. The Swift
+``AppAttestClient/debug`` are wrapped in `#if DEBUG`. The Swift
 compiler strips those branches when `SWIFT_ACTIVE_COMPILATION_CONDITIONS`
 does not include `DEBUG` — which is the case for every standard Release
 configuration, including TestFlight.
 
-A consumer app that writes `AppAttestClient.shared.debugMode = .local(...)`
+A consumer app that writes `AppAttestClient.shared.debug = .local(...)`
 outside `#if DEBUG` will not compile for Release. If you wrap it in
 `#if DEBUG` correctly, the statement vanishes from the shipped binary.
 
@@ -39,6 +39,18 @@ TestFlight builds are Release builds. The `DEBUG` flag is not set. The
 debug mode is stripped. You cannot accidentally ship a build to
 TestFlight that reads stub secrets — the type literally does not exist
 in the compiled binary.
+
+## What about `AppAttest.release = .staging` in a Release build?
+
+Unlike ``DebugMode/local(stubs:)``, ``AppAttest/release`` **is** compiled into
+Release builds — deliberately. It is only a routing label choosing which
+metered bucket to attest against (`.staging` or `.production`); it carries no
+secrets and opens no offline path. Both buckets require a real attestation and
+are **metered** — selecting `.staging` in a shipped binary does not make
+anything free and cannot bypass billing. The one free path remains
+``DebugMode/local(stubs:)``, which is stripped from Release. That is what keeps
+billing un-hackable: every shipped app attests and meters, and which bucket it
+declares changes only *which* secrets it reads, never *whether* it pays.
 
 ## What about the base URL?
 

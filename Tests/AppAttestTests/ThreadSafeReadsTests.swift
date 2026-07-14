@@ -79,7 +79,7 @@ final class ThreadSafeReadsTests: XCTestCase {
     /// funnel the network 200-path uses).
     func testMirrorConsistencyAfterLocalSync() async throws {
         let client = AppAttestClient()
-        client.debugMode = .local(stubs: ["A": "1", "B": "2"])
+        client.debug = .local(stubs: ["A": "1", "B": "2"])
         client.start()
         try await client.waitForReady()
 

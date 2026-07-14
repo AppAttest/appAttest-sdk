@@ -191,12 +191,12 @@ any Release binary.
 
 | Mode | Network | Reads from |
 |------|---------|------------|
-| (production, default — `debugMode = nil`) | yes | sandbox or production column, per AAGUID |
+| (production, default — `debug = nil`) | yes | sandbox or production column, per AAGUID |
 | `.local(stubs:)` | no | inline dictionary |
 
 Dev / TestFlight builds on real devices produce real App Attest
 attestations against the sandbox column via Apple's AAGUID — no
-`debugMode` needed. `.local(stubs:)` is for SwiftUI previews,
+`debug` needed. `.local(stubs:)` is for SwiftUI previews,
 simulator runs, unit tests, and CI runners where Apple's App Attest
 service literally isn't reachable.
 
@@ -205,7 +205,7 @@ service literally isn't reachable.
 struct MyApp: App {
     init() {
         #if DEBUG
-        AppAttest.debugMode = .local(stubs: [
+        AppAttest.debug = .local(stubs: [
             "OPENAI_API_KEY": "sk-test-stub",
             "BACKEND_KEY": "dev-token-abc"
         ])

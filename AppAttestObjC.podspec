@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'AppAttestObjC'
-  s.version          = '0.2.0'
+  s.version          = '0.3.0'
   s.summary          = 'Objective-C-friendly wrapper for AppAttest, for bridge writers and ObjC consumers.'
   s.description      = <<~DESC
     AppAttestObjC is a thin `@objc`-friendly facade over `AppAttest`.

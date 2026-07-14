@@ -145,7 +145,7 @@ final class AppAttestModule: RCTEventEmitter {
         reject: @escaping RCTPromiseRejectBlock
     ) {
         let dict = (stubs as? [String: String]) ?? [:]
-        client.setDebugMode(name as String?, stubs: dict.isEmpty ? nil : dict) { error in
+        client.setDebug(name as String?, stubs: dict.isEmpty ? nil : dict) { error in
             Self.complete((), error: error, resolve: resolve, reject: reject)
         }
     }

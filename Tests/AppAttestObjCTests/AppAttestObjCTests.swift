@@ -20,7 +20,7 @@ final class AppAttestObjCTests: XCTestCase {
 
     func testDebugModeRejectsUnknownName() async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            AppAttestObjCClient.shared.setDebugMode("nope", stubs: nil) { error in
+            AppAttestObjCClient.shared.setDebug("nope", stubs: nil) { error in
                 if let error {
                     XCTAssertEqual(error.domain, AppAttestErrorDomain)
                     XCTAssertEqual(error.userInfo["code"] as? String, "invalid_argument")
@@ -34,7 +34,7 @@ final class AppAttestObjCTests: XCTestCase {
 
     func testLocalModeServesStubsViaSecretForKey() async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            AppAttestObjCClient.shared.setDebugMode("local", stubs: ["A": "1", "B": "2"]) { error in
+            AppAttestObjCClient.shared.setDebug("local", stubs: ["A": "1", "B": "2"]) { error in
                 if let e = error { cont.resume(throwing: e) } else { cont.resume() }
             }
         }
@@ -63,7 +63,7 @@ final class AppAttestObjCTests: XCTestCase {
         }
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            AppAttestObjCClient.shared.setDebugMode("local", stubs: ["A": "1"]) { error in
+            AppAttestObjCClient.shared.setDebug("local", stubs: ["A": "1"]) { error in
                 if let e = error { cont.resume(throwing: e) } else { cont.resume() }
             }
         }

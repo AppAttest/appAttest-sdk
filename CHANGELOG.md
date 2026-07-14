@@ -5,6 +5,47 @@ Versioning: SemVer (pre-1.0 minor bumps may break source compatibility).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-14
+
+Configuration and billing-model release. Two explicit, metered server buckets
+selected by build type, an Apple-AAGUID secret-isolation rule, hardened
+simulator / SwiftUI-preview handling, and a public API rename for symmetry.
+
+### Added
+- **`AppAttest.release` bucket selection.** A Release build attests against one
+  of two functionally-identical, separately-keyed, metered buckets —
+  `.staging` or `.production` (default `.production`). `.staging` lets a team
+  verify end to end against a non-production secret set before shipping;
+  `.production` is the live set. No code change is required between them — the
+  same `start()` declares the right bucket for the build.
+- **AAGUID-based secret isolation.** Apple's App Attest AAGUID (a build-time
+  property) constrains which bucket a build may read: a development-signed build
+  — including a distribution build that lacks the production App Attest
+  entitlement — may reach only `.staging`; a production-entitled build may reach
+  `.production`. A build requesting a bucket its AAGUID isn't permitted is
+  rejected at attestation with `AppAttestError.attestationRejected`, whose
+  reason names the fix (add the entitlement, or set `AppAttest.release` to
+  `.staging`).
+- **Hardened unsupported-environment handling.** On the simulator (no Secure
+  Enclave) without `.local`, the SDK stops with an actionable message that is
+  compiled in only for the simulator target and can never exist in a device
+  build. In a SwiftUI `#Preview` without `.local`, it never crashes — it logs a
+  loud fault and renders a safe empty state. On rare unsupported real hardware
+  it fails open rather than crashing.
+
+### Changed
+- **Both server buckets are metered.** `.staging` and `.production` each require
+  a real Apple attestation on every call and each draws down the project's
+  allotment; selecting `.staging` in a shipped build changes only *which*
+  secrets are read, never *whether* usage is counted. The one offline path
+  remains `.local(stubs:)`, which is `#if DEBUG`-stripped from Release.
+- **Renamed `AppAttest.debugMode` → `AppAttest.debug`** (breaking, source-level).
+  Symmetric with `AppAttest.release`. The `.local(stubs:)` value and its
+  `#if DEBUG`-only stripping are unchanged — update
+  `AppAttest.debugMode = .local(...)` to `AppAttest.debug = .local(...)`. The
+  Objective-C facade method `setDebugMode(_:stubs:completion:)` is likewise
+  renamed to `setDebug(_:stubs:completion:)`.
+
 ## [0.2.0] - 2026-07-12
 
 Reliability and observability release: a foreground re-sync bug fix, a new

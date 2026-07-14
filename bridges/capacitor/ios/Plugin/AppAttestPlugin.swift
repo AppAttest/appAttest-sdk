@@ -128,7 +128,7 @@ public class AppAttestPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setDebugMode(_ call: CAPPluginCall) {
         let name = call.getString("name") // nil OK -> production
         let stubs = call.getObject("stubs") as? [String: String]
-        client.setDebugMode(name, stubs: stubs) { error in
+        client.setDebug(name, stubs: stubs) { error in
             Self.complete(error: error, call: call)
         }
     }

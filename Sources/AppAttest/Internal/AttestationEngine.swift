@@ -60,8 +60,9 @@ extension AttestationEngineError {
 ///
 /// The simulator cannot produce attestations — on simulator, `isSupported`
 /// returns false and callers must use `DebugMode.local(stubs:)`. There is
-/// no `.sandbox` mode; real-device dev/TestFlight builds produce
-/// real sandbox attestations via Apple's AAGUID derivation.
+/// no `.sandbox` mode; real-device builds produce real App Attest
+/// attestations and edge resolves the bucket from Apple's AAGUID (a
+/// development-signed build resolves to the staging bucket).
 struct AttestationEngine: Sendable {
 
     /// `true` when `DCAppAttestService.shared.isSupported` is true.

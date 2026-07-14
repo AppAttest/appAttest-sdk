@@ -12,22 +12,26 @@ import Foundation
 // claims (`team_id`, `bundle_id`, `env`); the request body itself is
 // identity-free.
 //
-// `env_bucket` is also not present in any
-// wire shape. Apple's AAGUID inside the App Attest authData (16 bytes
-// at `authData[37..53]`) is the SOLE bucket signal. Edge derives the
-// bucket server-side at `/v1/attest`, stamps it into the attestToken's
-// `env` claim, and trusts the claim on subsequent calls. The SDK is
-// bucket-blind — no parameter, no override, no field on the wire.
+// The `/v1/attest` request carries an optional `bucket` field — the SDK's
+// *declared desired bucket* (`"staging"` | `"production"`). Edge resolves the
+// served bucket from (Apple's AAGUID allowed-set ∩ this declaration): a
+// development-signed build (development AAGUID) may reach only `staging`; a
+// production-signed build may reach `staging` or `production`. Edge stamps the
+// resolved value into the attestToken's `env` claim and trusts the claim on
+// subsequent calls. `/v1/secrets/sync` + `/v1/events` bodies carry NO bucket —
+// it lives only in the signed claim. (Pre-0.3.0 SDKs omit `bucket`; edge then
+// derives the safe default from the AAGUID alone.)
 
 /// `POST /v1/attest/challenge` — no body. Server returns the challenge JWT.
 struct ChallengeResponse: Decodable {
     let challenge: String
 }
 
-/// `POST /v1/attest` request. Edge derives the env bucket from the
-/// AAGUID inside `authData`, then verifies the App Attest object (nonce +
-/// rpIdHash + AAGUID + counter + credentialId) and mints a 24h
-/// `attestToken` whose claims include `team_id`, `bundle_id`, `env`.
+/// `POST /v1/attest` request. Edge resolves the env bucket from
+/// (the AAGUID inside `authData` ∩ the declared `bucket` below), then
+/// verifies the App Attest object (nonce + rpIdHash + AAGUID + counter +
+/// credentialId) and mints a 24h `attestToken` whose claims include
+/// `team_id`, `bundle_id`, `env` (the resolved bucket).
 struct AttestRequest: Encodable {
     let teamId: String
     let keyId: String
@@ -38,6 +42,29 @@ struct AttestRequest: Encodable {
     /// verifies the JWT signature; the entire JWT bytes are App Attest
     /// `clientData`.
     let challenge: String
+    /// The SDK's declared desired bucket — `"staging"` or `"production"`.
+    /// **Optional on the wire:** a `nil` value is omitted from the JSON, which
+    /// reproduces pre-0.3.0 behavior (edge derives the safe default from the
+    /// AAGUID alone). The 0.3.0+ SDK always populates it (see
+    /// ``AppAttestClient/declaredBucketWireValue``). Edge rejects
+    /// `(development AAGUID, "production")` with `403 bucket_not_permitted`.
+    let bucket: String?
+
+    init(
+        teamId: String,
+        keyId: String,
+        bundleId: String,
+        attestation: String,
+        challenge: String,
+        bucket: String? = nil
+    ) {
+        self.teamId = teamId
+        self.keyId = keyId
+        self.bundleId = bundleId
+        self.attestation = attestation
+        self.challenge = challenge
+        self.bucket = bucket
+    }
 
     enum CodingKeys: String, CodingKey {
         case teamId = "team_id"
@@ -45,6 +72,7 @@ struct AttestRequest: Encodable {
         case bundleId = "bundle_id"
         case attestation
         case challenge
+        case bucket
     }
 }
 

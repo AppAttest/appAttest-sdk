@@ -3,12 +3,13 @@ import os
 
 /// Edge API client for the AppAttest wire protocol.
 ///
-/// **Wire shape (identity in the signed token, bucket from AAGUID):**
-/// `/v1/attest` carries `team_id` + `bundle_id` + the App Attest object;
-/// edge derives the env bucket from the AAGUID in `authData`, then mints
-/// an attestToken whose claims include `team_id`, `bundle_id`, `env`.
+/// **Wire shape (identity in the signed token, bucket declared then resolved):**
+/// `/v1/attest` carries `team_id` + `bundle_id` + the App Attest object + an
+/// optional declared `bucket`; edge resolves the served bucket from (the AAGUID
+/// allowed-set ∩ the declaration), then mints an attestToken whose claims
+/// include `team_id`, `bundle_id`, `env` (the resolved bucket).
 /// `/v1/secrets/sync` and `/v1/events` bodies carry ONLY `attest_token`
-/// (+ `fingerprint` or `events`). No `env_bucket`, no identity fields.
+/// (+ `fingerprint` or `events`) — the bucket lives only in the signed claim.
 ///
 /// **Assertion lives in a header.** Each `/v1/secrets/sync` and
 /// `/v1/events` request is signed by Apple's `DCAppAttestService` over
@@ -389,6 +390,18 @@ struct APIClient: Sendable {
         let envelope = try? Self.jsonDecoder.decode(APIErrorEnvelope.self, from: data)
         let code = envelope?.code ?? "http_\(status)"
         let message = envelope?.message ?? (String(data: data, encoding: .utf8) ?? "")
+
+        // 403 bucket_not_permitted — the build attested with the development
+        // App Attest environment but declared the production bucket (the
+        // isolation gate). This is a *configuration* error, not a transient or
+        // billing one: terminal, NOT auto-retried. Carry the server's
+        // actionable message through verbatim — it is developer-facing guidance
+        // (add the production entitlement, or set `AppAttest.release = .staging`)
+        // with no infrastructure detail. Reuse `.attestationRejected` (the
+        // five-case error enum is locked); the message is the actionable part.
+        if status == 403, code == "bucket_not_permitted" {
+            return .attestationRejected(reason: message)
+        }
 
         // 402 family. The deep-link URL is normally provided, but if
         // edge ever ships a malformed envelope without it we still

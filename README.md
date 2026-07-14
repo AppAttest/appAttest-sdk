@@ -15,7 +15,7 @@ of your real app can read them.
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.1.0")
+.package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.3.0")
 ```
 
 CocoaPods:
@@ -342,7 +342,7 @@ Each bridge's README (under `bridges/`) carries its install and quick start.
 
 ## Status
 
-`0.1.0`. Surface implemented and tested.
+`0.3.0`. Surface implemented and tested.
 
 ## License
 

@@ -12,15 +12,18 @@ Attest service literally isn't reachable (the simulator, SwiftUI previews, CI).
 
 | Mode | Network | Attestation | Bucket |
 |------|---------|-------------|--------|
-| (default — unset), Debug build | yes | real Apple App Attest | staging (metered) |
-| (default — unset), Release build | yes | real Apple App Attest | ``AppAttest/release`` (default `.production`, metered) |
+| (default — unset), any build | yes | real Apple App Attest | exactly the `release:` you passed to ``AppAttest/start(release:)`` (metered) |
 | ``DebugMode/local(stubs:)`` (Debug only) | no | none | inline dictionary (free) |
+
+> Important: The bucket does **not** depend on whether you built Debug or
+> Release. It is exactly the required `release:` argument — see
+> <doc:#Choosing-the-bucket>.
 
 ``DebugMode/local(stubs:)`` is `#if DEBUG`-stripped in Release builds, so
 neither the case nor the setter can leak into a shipped binary — a Release
 binary has no offline path and always attests + meters.
 
-Set the mode before ``AppAttestClient/start()``:
+Set the mode before ``AppAttestClient/start(release:)``:
 
 ```swift
 #if DEBUG
@@ -29,17 +32,17 @@ AppAttestClient.shared.debug = .local(stubs: [
     "STRIPE_PUBLISHABLE_KEY": "pk_test_xxx"
 ])
 #endif
-AppAttest.start()
+AppAttest.start(release: .production)
 ```
 
 ## Default (real attestation)
 
 The default. On a real iPhone (or iPad / Vision Pro), the SDK calls
 `/v1/attest/{challenge,register,assert}` with a real attestation object
-signed by the Apple Secure Enclave. The SDK **declares** its desired bucket
-(a Debug build → `staging`; a Release build → ``AppAttest/release``, default
-`.production`); edge resolves it against Apple's AAGUID and serves the matching
-secret set. Both buckets are metered.
+signed by the Apple Secure Enclave. The SDK **declares** the bucket you passed
+to ``AppAttest/start(release:)`` — verbatim, never inferred from the build
+flavor; edge resolves that declaration against Apple's AAGUID and serves the
+matching secret set. Both buckets are metered.
 
 Apple's AAGUID is a **build-time** property, not a distribution-type one:
 
@@ -51,25 +54,36 @@ Apple's AAGUID is a **build-time** property, not a distribution-type one:
 - Only a build carrying that production entitlement attests with the
   **production** AAGUID and may reach the **production** bucket.
 
-So a Release build defaulting to `.production` that ships **without** the
-production entitlement is rejected at attestation with `403 bucket_not_permitted`
+So a build that declares `.production` but ships **without** the production
+entitlement is rejected at attestation with `403 bucket_not_permitted`
 (surfaced as ``AppAttestError/attestationRejected(reason:)``): the reason names
-the fix — add the entitlement, or set ``AppAttest/release`` to `.staging`.
+the fix — add the entitlement, or declare `.staging`. That rejection is
+deliberate and loud: a mismatched build is never silently re-routed to another
+bucket.
 
-### Choosing the Release bucket
+### Choosing the bucket
+
+`release:` is **required**. There is no default:
 
 ```swift
-// Optional — the default is .production.
-AppAttest.release = .staging   // point a pre-ship build at the staging bucket
-AppAttest.start()
+AppAttest.start(release: .production)   // shipping build
+AppAttest.start(release: .staging)      // pre-ship verification build
 ```
 
 `.staging` and `.production` are two functionally-identical, separately-keyed,
 **metered** buckets. `.staging` lets a team verify end to end against a
 non-production secret set before flipping to `.production`. Neither is free —
-the only free path is ``DebugMode/local(stubs:)`` (Debug only). No code change
-is required between development and production: the same `start()` declares the
-right bucket based on the build.
+the only free path is ``DebugMode/local(stubs:)`` (Debug only).
+
+> Important: The bucket is **never** inferred from `#if DEBUG` or any other
+> build-flavor signal — it is exactly what you pass. This matters because
+> `#if DEBUG` inside the SDK reflects how the *SDK's own compilation unit* was
+> built, which a host app consuming the SDK via SwiftPM / CocoaPods does not
+> control and which can diverge from the host app's own `#if DEBUG`. When the
+> SDK did infer, an Xcode configuration that built dependencies debug-flavored
+> produced distribution archives that silently declared `staging` and were
+> served **staging secrets in production**. Requiring the argument makes a
+> forgotten bucket a compile error instead.
 
 ## Local (stubs)
 
@@ -82,7 +96,7 @@ the service.
 AppAttestClient.shared.debug = .local(stubs: [
     "OPENAI_API_KEY": "sk-test-xxx"
 ])
-AppAttest.start()
+AppAttest.start(release: .production)
 print(AppAttest.secrets["OPENAI_API_KEY"])  // "sk-test-xxx"
 #endif
 ```

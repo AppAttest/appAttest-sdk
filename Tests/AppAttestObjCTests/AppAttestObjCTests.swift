@@ -38,7 +38,11 @@ final class AppAttestObjCTests: XCTestCase {
                 if let e = error { cont.resume(throwing: e) } else { cont.resume() }
             }
         }
-        AppAttestObjCClient.shared.start()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            AppAttestObjCClient.shared.start(release: "production") { error in
+                if let e = error { cont.resume(throwing: e) } else { cont.resume() }
+            }
+        }
 
         // waitForReady completes once the local stubs hydrate.
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -67,7 +71,11 @@ final class AppAttestObjCTests: XCTestCase {
                 if let e = error { cont.resume(throwing: e) } else { cont.resume() }
             }
         }
-        AppAttestObjCClient.shared.start()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            AppAttestObjCClient.shared.start(release: "production") { error in
+                if let e = error { cont.resume(throwing: e) } else { cont.resume() }
+            }
+        }
 
         await fulfillment(of: [exp], timeout: 5)
         XCTAssertTrue(observed.contains("ready"))

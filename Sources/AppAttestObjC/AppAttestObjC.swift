@@ -91,36 +91,38 @@ public final class AppAttestObjCClient: NSObject {
 
     /// Synchronous, idempotent setup.
     ///
-    /// No bucket argument. A Debug build declares `staging`; a Release build
-    /// declares whatever ``setRelease(_:completion:)`` selected (default
-    /// `production`). Edge resolves the declaration against Apple's AAGUID.
-    @objc public func start() {
-        Task { @MainActor in AppAttestClient.shared.start() }
-    }
-
-    /// Select the server bucket a **Release** build attests against.
-    /// Valid values: `"production"` (default) or `"staging"`. Ignored in Debug
-    /// builds (which always declare `staging`). Set before ``start()``.
-    /// Compiled into all builds — a routing label, no secrets, no free path.
-    @objc public func setRelease(
-        _ name: String,
+    /// - Parameter release: The server bucket this build attests against.
+    ///   **Required** — `"production"` or `"staging"`. There is no default and
+    ///   no inference: the bucket is exactly what you pass, whatever
+    ///   compilation flavor the SDK itself was built with.
+    /// - Parameter completion: `nil` on success. An `invalid_argument` NSError
+    ///   if `release` is not a known bucket — in which case **the SDK does not
+    ///   start**, rather than guessing a bucket.
+    ///
+    /// Edge resolves the declaration against Apple's AAGUID; a
+    /// development-signed build declaring `"production"` gets a loud
+    /// `403 bucket_not_permitted`.
+    @objc public func start(
+        release name: String,
         completion: @escaping (NSError?) -> Void
     ) {
         Task { @MainActor in
+            let bucket: ReleaseBucket
             switch name {
-            case "production":
-                AppAttestClient.shared.release = .production
-                completion(nil)
-            case "staging":
-                AppAttestClient.shared.release = .staging
-                completion(nil)
+            case "production": bucket = .production
+            case "staging":    bucket = .staging
             default:
+                // Do NOT start. An unknown string is a misconfiguration; the
+                // one thing we must never do is pick a bucket on their behalf.
                 completion(nsError(
                     code: "invalid_argument",
                     message: "unknown release bucket: \(name). Use \"production\" or \"staging\".",
                     status: 400
                 ))
+                return
             }
+            AppAttestClient.shared.start(release: bucket)
+            completion(nil)
         }
     }
 

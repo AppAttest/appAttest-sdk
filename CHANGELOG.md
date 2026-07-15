@@ -5,6 +5,79 @@ Versioning: SemVer (pre-1.0 minor bumps may break source compatibility).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-15
+
+Correctness release. The declared server bucket no longer depends on how the
+SDK itself was compiled — it is now an explicit, required argument.
+
+### Fixed
+- **The declared bucket could silently disagree with the developer's explicit
+  choice.** The SDK derived its bucket from `#if DEBUG` (`Debug → always
+  staging`), overriding `AppAttest.release`. Inside an SDK, `#if DEBUG` reflects
+  how the *SDK's own compilation unit* was built — which a host app consuming
+  the SDK via SwiftPM / CocoaPods does not control, and which can diverge from
+  the host app's own `#if DEBUG`. An Xcode configuration that omits `DEBUG` from
+  the app target while still building dependencies debug-flavored produced
+  **distribution archives that silently declared `staging`** and were served
+  **staging secrets while the developer believed they were on production**. The
+  `#if DEBUG` override is removed entirely: the SDK declares the developer's
+  explicit choice, always, regardless of compilation flavor.
+
+### Changed (breaking)
+- **`AppAttest.start()` → `AppAttest.start(release:)`.** The bucket is now a
+  **required** argument with **no default** — a forgotten bucket is a compile
+  error, never a wrong bucket in a shipped app. `AppAttest.release` (the
+  settable property) is removed; `start(release:)` is the only way to declare a
+  bucket, so it cannot be overridden after the fact.
+- **The "Debug → always staging" rule is retired.** A Debug build declares
+  whatever it passes. To attest against staging, say so:
+  `AppAttest.start(release: .staging)`.
+- **ObjC:** `start()` + `setRelease(_:completion:)` → a single
+  `start(release:completion:)`. An unrecognized bucket string returns an
+  `invalid_argument` NSError and the SDK **does not start**, rather than
+  guessing a bucket.
+- `reset()` now also clears the bucket — the next `start(release:)` supplies it
+  explicitly again rather than inheriting a stale choice.
+
+### Migration from 0.3.0
+
+Pass the bucket you were previously relying on the default for:
+
+```swift
+// Before (0.3.0) — .production was the default, and Debug silently forced staging.
+AppAttest.start()
+
+// After (0.4.0) — say what you mean; it is honored in every build.
+AppAttest.start(release: .production)
+```
+
+If you set `AppAttest.release = .staging`, move it into the call:
+
+```swift
+// Before
+AppAttest.release = .staging
+AppAttest.start()
+
+// After
+AppAttest.start(release: .staging)
+```
+
+**Check your Debug/development builds.** They used to be forced to `staging`
+regardless. If a development build should keep reading staging, it must now say
+`AppAttest.start(release: .staging)` — otherwise it declares `.production`, and
+a development-signed build gets a loud `403 bucket_not_permitted` (add the
+`com.apple.developer.devicecheck.appattest-environment=production` entitlement,
+or declare `.staging`). Rejection is deliberate: a mismatched build is never
+silently re-routed.
+
+### Unchanged
+- `AppAttest.debug = .local(stubs:)` remains `#if DEBUG`-only — correctly so.
+  It is a free, offline path that must never exist in a shipped binary. (Gate
+  the free path on the build flavor; never let the build flavor decide which
+  metered bucket you meant.)
+- Edge requires no change: it already resolves a declared bucket against Apple's
+  AAGUID.
+
 ## [0.3.0] - 2026-07-14
 
 Configuration and billing-model release. Two explicit, metered server buckets

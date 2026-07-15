@@ -6,7 +6,7 @@ of your real app can read them.
 
 - Zero developer-typed configuration. The SDK identifies your app by
   Apple's `{teamId}.{bundleId}` — both auto-derived on-device.
-- One call at boot — `AppAttest.start()` — fire and forget.
+- One call at boot — `AppAttest.start(release: .production)` — fire and forget.
 - Synchronous secret reads from in-memory dict. SwiftUI re-renders when secrets land.
 - Release builds always run real attestation. Debug modes compile out.
 
@@ -15,7 +15,7 @@ of your real app can read them.
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.3.0")
+.package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.4.0")
 ```
 
 CocoaPods:
@@ -54,7 +54,7 @@ import AppAttest
 
 @main
 struct MyApp: App {
-    init() { AppAttest.start() }
+    init() { AppAttest.start(release: .production) }
 
     var body: some Scene {
         WindowGroup { ContentView() }
@@ -81,7 +81,7 @@ That's it.
 ```swift
 @main
 struct MyApp: App {
-    init() { AppAttest.start() }
+    init() { AppAttest.start(release: .production) }
 
     var body: some Scene {
         WindowGroup {
@@ -161,7 +161,7 @@ func buildOpenAIClient() -> OpenAIClient? {
 
 ## Lifecycle
 
-`AppAttest.start()`:
+`AppAttest.start(release: .production)`:
 
 1. Hydrates `secrets` from the Keychain. Non-empty → `state = .ready`
    immediately (cold-start fast path; second-and-subsequent launches see
@@ -210,33 +210,62 @@ struct MyApp: App {
             "BACKEND_KEY": "dev-token-abc"
         ])
         #endif
-        AppAttest.start()
+        AppAttest.start(release: .production)
     }
     // ...
 }
 ```
 
-## How buckets work (sandbox vs production)
+## How buckets work (staging vs production)
 
-The SDK is **bucket-blind**: there is no `secretsBucket:`
-argument on `AppAttest.start()`, no Info.plist override, no public
-way to pick which bucket serves your app. Apple's App Attest
-AAGUID — a 16-byte mode marker stamped into every attestation —
-is the sole signal:
+There are two independent axes. Keeping them apart is the whole model:
 
-- **Dev / TestFlight builds** → Apple stamps the *development*
-  AAGUID → AppAttest serves the **sandbox** secrets column.
-- **App Store builds** → Apple stamps the *production* AAGUID →
-  AppAttest serves the **production** secrets column.
+**1. Which server bucket you declare — you choose it, explicitly.**
 
-No code changes between sandbox testing and production shipping.
-The same `AppAttest.start()` reads the right bucket for the build
-context it's running in.
+`release:` is a **required** argument on `AppAttest.start(release:)`. There is
+no default, no Info.plist override, and — importantly — **no inference from
+`#if DEBUG`**. The bucket is exactly what you pass, and it means the same thing
+however the SDK itself happened to be compiled:
 
-For last-mile verification of production secrets before submitting
-to the App Store, use TestFlight: a TestFlight build carries the real
-production AAGUID, so it reads the production column. There is no
-SDK-side override and no debug-build path to the production column.
+```swift
+AppAttest.start(release: .production)   // shipping build
+AppAttest.start(release: .staging)      // pre-ship verification build
+```
+
+`.staging` and `.production` are two functionally-identical, separately-keyed,
+**metered** buckets. Neither is free.
+
+**2. Which secrets column Apple puts you in — the AAGUID decides, not you.**
+
+Apple's App Attest AAGUID — a 16-byte mode marker stamped into every
+attestation — is a **build-time** property you cannot forge:
+
+- **Development-signed builds** (Xcode → device) → *development* AAGUID →
+  **sandbox** column.
+- **Distribution builds carrying the
+  `com.apple.developer.devicecheck.appattest-environment=production`
+  entitlement** (TestFlight, App Store) → *production* AAGUID → **production**
+  column.
+
+The two axes are orthogonal: **both servers have both columns.** Edge resolves
+your declared bucket against the AAGUID. A development-signed build that
+declares `.production` is rejected with a loud `403 bucket_not_permitted`
+naming the fix — it is never silently re-routed.
+
+For last-mile verification of production secrets before submitting to the App
+Store, use TestFlight: a TestFlight build with the production entitlement
+carries the real production AAGUID, so it reads the production column. There is
+no debug-build path to the production column.
+
+> **Why `release:` is required.** It used to default to `.production` and be
+> overridden by `#if DEBUG`. But `#if DEBUG` reflects how the *SDK's own
+> compilation unit* was built — which, for an SPM/CocoaPods dependency, your app
+> does not control and which can diverge from your app's own `#if DEBUG`. An
+> Xcode configuration that built dependencies debug-flavored made shipped
+> archives silently declare `.staging` and read **staging** secrets in
+> production. Making the choice explicit and never inferring it removes that
+> failure mode: a forgotten bucket is now a compile error, not a wrong bucket in
+> a shipped app.
 
 ## Errors
 
@@ -306,11 +335,19 @@ and Capacitor bridges depend on it.
 import AppAttestObjC
 
 let client = AppAttestObjCClient.shared
-client.start()
+client.start(release: "production") { error in
+    // `invalid_argument` if the string is not a known bucket — the SDK does
+    // not start rather than guess one.
+    if let error { print(error) }
+}
 let token = client.addStateObserver { state in
     if state.name == "ready" {
-        let key = client.secret(forKey: "OPENAI_API_KEY") as String?
-        // ...
+        // Observers always fire on the main actor; the block's type is not
+        // isolated, so hop explicitly to reach the @MainActor accessors.
+        Task { @MainActor in
+            let key = client.secret(forKey: "OPENAI_API_KEY") as String?
+            // ...
+        }
     }
 }
 ```
@@ -342,7 +379,7 @@ Each bridge's README (under `bridges/`) carries its install and quick start.
 
 ## Status
 
-`0.3.0`. Surface implemented and tested.
+`0.4.0`. Surface implemented and tested.
 
 ## License
 

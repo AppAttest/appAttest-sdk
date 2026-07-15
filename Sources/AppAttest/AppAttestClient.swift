@@ -22,7 +22,7 @@ import Security
 /// ```swift
 /// @main
 /// struct MyApp: App {
-///     init() { AppAttest.start() }
+///     init() { AppAttest.start(release: .production) }
 ///
 ///     var body: some Scene {
 ///         WindowGroup { ContentView() }
@@ -30,9 +30,13 @@ import Security
 /// }
 /// ```
 ///
-/// `start()` is synchronous and idempotent. It hydrates `secrets` from
-/// the Keychain (cold-start fast path), registers a foreground observer,
+/// `start(release:)` is synchronous and idempotent. It hydrates `secrets`
+/// from the Keychain (cold-start fast path), registers a foreground observer,
 /// and spawns the background sync `Task`. Subsequent calls are no-ops.
+///
+/// The `release:` bucket is **required** — there is no default, and it is
+/// never inferred from `#if DEBUG`. Pass ``ReleaseBucket/production`` for a
+/// shipping build, ``ReleaseBucket/staging`` to attest against staging.
 ///
 /// # Reading secrets
 ///
@@ -121,13 +125,15 @@ public final class AppAttestClient {
     }
     #endif
 
-    /// The server bucket a **Release** build attests against. Default
-    /// ``ReleaseBucket/production``. Compiled into all builds — a routing
-    /// label carrying no secrets and no offline path, so it is safe to ship.
-    /// Ignored in Debug builds (which always declare ``ReleaseBucket/staging``
-    /// — a debug build is a development-environment build). Set before
-    /// ``start()``.
-    public var release: ReleaseBucket = .production
+    /// The server bucket this build attests against, as passed to
+    /// ``start(release:)``. `nil` until `start(release:)` runs — **there is no
+    /// default**: the choice is always the developer's, made explicitly at the
+    /// call site, and it is honored regardless of how the SDK compiled.
+    ///
+    /// Internal, read-only: `start(release:)` is the only way to set it, so the
+    /// value can never be silently overridden after the fact. A routing label —
+    /// no secrets, no offline path — so it is safe to compile into all builds.
+    private(set) var release: ReleaseBucket?
 
     // MARK: - Configuration (internal-only, hardcoded)
 
@@ -223,17 +229,40 @@ public final class AppAttestClient {
     ///    observer for fingerprint refresh on foreground re-entry.
     /// 3. Spawns the background sync `Task` and returns.
     ///
-    /// Zero-argument. The bucket the SDK attests against is set by build type
-    /// + configuration, not by a `start()` parameter: a **Debug** build always
-    /// declares `staging`; a **Release** build declares ``release`` (default
-    /// ``ReleaseBucket/production``). The SDK sends that declaration on
-    /// `/v1/attest`; edge resolves it against Apple's AAGUID (the allowed
-    /// bucket a development build may reach only `staging`; a production build
-    /// may reach either) and stamps the result into the attestToken's signed
-    /// `env` claim. There is no Info.plist override and no per-call argument.
-    public func start() {
-        if hasStarted { return }
+    /// - Parameter release: The server bucket this build attests against.
+    ///   **Required — there is no default.** ``ReleaseBucket/production`` for a
+    ///   shipping build; ``ReleaseBucket/staging`` to point a build at the
+    ///   staging bucket.
+    ///
+    /// The bucket is declared **only** by this argument. It is never inferred
+    /// from `#if DEBUG` or from any other build-flavor signal: for an SPM /
+    /// CocoaPods dependency the host app does not control how the SDK's own
+    /// compilation unit is built, so inferring would silently override this
+    /// explicit choice. The parameter is required precisely so the choice
+    /// cannot be forgotten — a missing bucket is a compile error, never a
+    /// wrong bucket at runtime.
+    ///
+    /// The SDK sends the declaration on `/v1/attest`; edge resolves it against
+    /// Apple's AAGUID (a development build may reach only `staging`; a
+    /// production build may reach either) and stamps the result into the
+    /// attestToken's signed `env` claim. A development-signed build that
+    /// declares `.production` gets a loud `403 bucket_not_permitted` — the
+    /// correct, visible misconfiguration signal. There is no Info.plist
+    /// override.
+    public func start(release: ReleaseBucket) {
+        if hasStarted {
+            // Idempotent, as documented. But a *second* call asking for a
+            // different bucket is a real misconfiguration (two call sites
+            // disagreeing) and silently keeping the first is exactly the class
+            // of silent-wrong-bucket bug APP-102 killed. Never fatal — just
+            // loud.
+            if let existing = self.release, existing != release {
+                logger.fault("AppAttest: start(release: .\(String(describing: release))) ignored — already started with .\(String(describing: existing)). The first call wins; the SDK is attesting against .\(String(describing: existing)). Call start(release:) exactly once, from one place.")
+            }
+            return
+        }
         hasStarted = true
+        self.release = release
 
         // Step 2 (hydrate) — read Keychain synchronously.
         if let bundle = persisting(.secrets, .load, { try primaryStoreOrNil()?.loadSecrets() }) ?? nil {
@@ -276,13 +305,17 @@ public final class AppAttestClient {
     }
 
     /// Wipes stored credentials and secrets. Resets state to
-    /// `.initializing`. Next ``start()`` re-registers from scratch.
+    /// `.initializing`. Next ``start(release:)`` re-registers from scratch.
     public func reset() {
         syncTask?.cancel()
         syncTask = nil
         setSecrets([:])
         setState(.initializing)
         hasStarted = false
+        // Re-registering "from scratch" includes the bucket: there is no
+        // default, so the next `start(release:)` supplies it explicitly again
+        // rather than inheriting a stale choice.
+        release = nil
         // Fresh start: clear the degraded flags at entry. If the deleteAll
         // below then fails, `persisting` re-sets them — a failed wipe during
         // reset is a real degraded condition worth surfacing.
@@ -447,26 +480,23 @@ public final class AppAttestClient {
 
     // MARK: - Declared bucket resolution
 
-    /// Pure, build-agnostic resolution of the bucket this build declares on
-    /// `POST /v1/attest`. Factored out so the full build×config matrix is
-    /// unit-testable inside a Debug test binary (which cannot otherwise
-    /// exercise the Release branch): a **Debug** build is a
-    /// development-environment build → always ``ReleaseBucket/staging``; a
-    /// **Release** build honors the developer's ``release`` choice.
-    nonisolated static func resolveDeclaredBucket(isDebugBuild: Bool, release: ReleaseBucket) -> ReleaseBucket {
-        isDebugBuild ? .staging : release
-    }
-
     /// The bucket string this build sends as the `bucket` field on
-    /// `POST /v1/attest`. Debug → `"staging"`; Release → the ``release`` choice
-    /// (`"production"` by default, `"staging"` if opted in).
-    var declaredBucketWireValue: String {
-        #if DEBUG
-        let isDebugBuild = true
-        #else
-        let isDebugBuild = false
-        #endif
-        return Self.resolveDeclaredBucket(isDebugBuild: isDebugBuild, release: release).wireValue
+    /// `POST /v1/attest` — **exactly** the bucket the developer passed to
+    /// ``start(release:)``, and nothing else. `nil` only if `start(release:)`
+    /// was never called (unreachable from Swift: the parameter is required).
+    ///
+    /// > Important: This declaration MUST NOT depend on `#if DEBUG` or on any
+    /// > other property of how the SDK's own compilation unit was built. For an
+    /// > SPM/CocoaPods dependency the host app does **not** control the SDK's
+    /// > compilation flavor, and it can diverge from the host app's own
+    /// > `#if DEBUG` — an Xcode configuration that omits `DEBUG` from the app
+    /// > target while still building dependencies debug-flavored made the SDK
+    /// > silently declare `staging` from a distribution archive, overriding an
+    /// > explicit `.production` and serving STAGING secrets to a shipped app.
+    /// > The declaration is therefore a pure projection of the developer's
+    /// > explicit choice. See APP-102 / `DeclaredBucketTests`.
+    var declaredBucketWireValue: String? {
+        release?.wireValue
     }
 
     // MARK: - Unsupported-environment resolution
@@ -633,6 +663,17 @@ public final class AppAttestClient {
             }
         }
 
+        // The declared bucket is the developer's explicit `start(release:)`
+        // choice. Unreachable from Swift (the parameter is required, and this
+        // path only runs from `start`), but the ObjC facade validates a *string*
+        // at runtime and refuses to start on a bad one — so treat a missing
+        // bucket as terminal-but-loud rather than guessing. NEVER `fatalError`:
+        // crashing a shipped customer app is not an acceptable failure mode.
+        guard let declaredBucket = declaredBucketWireValue else {
+            logger.fault("AppAttest: no server bucket declared — start(release:) never ran. Call AppAttest.start(release: .production) (or .staging) before any secret access. Refusing to attest rather than guess a bucket.")
+            throw AppAttestError.serviceUnavailable(reason: "(temporarily_unavailable)")
+        }
+
         let context = try resolveContext()
 
         let client = makeAPIClient()
@@ -647,7 +688,7 @@ public final class AppAttestClient {
             bundleId: context.bundleId,
             attestation: attestationB64,
             challenge: challenge,
-            bucket: declaredBucketWireValue
+            bucket: declaredBucket
         )
         let response = try await client.attest(body: body)
 
@@ -995,23 +1036,20 @@ public final class AppAttestClient {
 /// from anywhere in the host app — observable tracking in SwiftUI views
 /// still works because the underlying property lives on the singleton.
 public enum AppAttest {
-    /// Synchronous, idempotent setup. Zero-argument. The bucket is set by
-    /// build type + ``release`` (see ``AppAttestClient/start()``), declared to
-    /// edge and resolved against Apple's AAGUID server-side.
+    /// Synchronous, idempotent setup.
+    ///
+    /// - Parameter release: The server bucket this build attests against.
+    ///   **Required — there is no default.** Declared verbatim to edge and
+    ///   resolved there against Apple's AAGUID. Never inferred from
+    ///   `#if DEBUG`, so it means the same thing however the SDK compiled.
+    ///   See ``AppAttestClient/start(release:)``.
+    ///
+    /// ```swift
+    /// AppAttest.start(release: .production)
+    /// ```
     @MainActor
-    public static func start() {
-        AppAttestClient.shared.start()
-    }
-
-    /// The server bucket a **Release** build attests against. Default
-    /// ``ReleaseBucket/production``. Set before ``start()``. Compiled into all
-    /// builds (a routing label, no secrets). Ignored in Debug builds, which
-    /// always declare ``ReleaseBucket/staging``. See
-    /// ``AppAttestClient/release``.
-    @MainActor
-    public static var release: ReleaseBucket {
-        get { AppAttestClient.shared.release }
-        set { AppAttestClient.shared.release = newValue }
+    public static func start(release: ReleaseBucket) {
+        AppAttestClient.shared.start(release: release)
     }
 
     /// Synchronous secret lookup. `nil` if not yet synced or absent.
@@ -1062,7 +1100,7 @@ public enum AppAttest {
     public static var lastPersistenceError: PersistenceError? { AppAttestClient.shared.lastPersistenceError }
 
     /// Optional sink fired on the main actor for every persistence failure.
-    /// Set before ``start()``. See ``AppAttestClient/onPersistenceIssue``.
+    /// Set before ``start(release:)``. See ``AppAttestClient/onPersistenceIssue``.
     @MainActor
     public static var onPersistenceIssue: (@MainActor @Sendable (PersistenceError) -> Void)? {
         get { AppAttestClient.shared.onPersistenceIssue }
@@ -1080,7 +1118,7 @@ public enum AppAttest {
     @MainActor
     public static func retry() { AppAttestClient.shared.retry() }
 
-    /// Wipes stored credentials and secrets. Next ``start()`` re-registers
+    /// Wipes stored credentials and secrets. Next ``start(release:)`` re-registers
     /// from scratch.
     @MainActor
     public static func reset() { AppAttestClient.shared.reset() }
@@ -1093,7 +1131,7 @@ public enum AppAttest {
 
     #if DEBUG
     /// Runtime mode. `nil` is production. Setting forces a re-sync on the
-    /// next ``start()`` (you typically set this *before* `start()`).
+    /// next ``start(release:)`` (you typically set this *before* `start(release:)`).
     /// Debug-only — the entire surface is `#if DEBUG`-stripped in Release
     /// builds.
     @MainActor

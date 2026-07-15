@@ -35,7 +35,7 @@ final class ReleaseStripTests: XCTestCase {
         // `.local` short-circuits before any network client is built. If it
         // ever hit the network this would hang / fail rather than resolve.
         AppAttestClient.shared.debug = .local(stubs: ["A": "1"])
-        AppAttestClient.shared.start()
+        AppAttestClient.shared.start(release: .production)
         try await AppAttestClient.shared.waitForReady()
         XCTAssertEqual(AppAttestClient.shared.state, .ready)
         XCTAssertEqual(AppAttestClient.shared.secrets["A"], "1")
@@ -47,13 +47,24 @@ final class ReleaseStripTests: XCTestCase {
     }
 
     func testReleaseLabelIsCompiledIntoAllBuildsAndIsNotAFreePath() {
-        // `release` is available regardless of build config (no `#if DEBUG`):
-        // it is a routing label, not a free path. Setting it never bypasses
-        // metering — it only changes which metered bucket a Release build
-        // declares.
-        AppAttestClient.shared.release = .staging
+        // `ReleaseBucket` + `start(release:)` are available regardless of build
+        // config (no `#if DEBUG` anywhere near them): the bucket is a routing
+        // label, not a free path. That this test compiles and runs under BOTH
+        // `swift test` and `swift test -c release` is itself the proof of
+        // presence.
+        //
+        // Choosing a bucket never bypasses metering — BOTH buckets are fully
+        // metered; it only selects which metered bucket this build declares.
+        // The single free/offline path is `.local`, which is `#if DEBUG`-only
+        // (proof (1) above).
+        XCTAssertEqual(ReleaseBucket.staging.wireValue, "staging")
+        XCTAssertEqual(ReleaseBucket.production.wireValue, "production")
+
+        AppAttestClient.shared.start(release: .staging)
         XCTAssertEqual(AppAttestClient.shared.release, .staging)
-        AppAttestClient.shared.release = .production
-        XCTAssertEqual(AppAttestClient.shared.release, .production)
+
+        // `reset()` clears it: there is no default to fall back to.
+        AppAttestClient.shared.reset()
+        XCTAssertNil(AppAttestClient.shared.release)
     }
 }

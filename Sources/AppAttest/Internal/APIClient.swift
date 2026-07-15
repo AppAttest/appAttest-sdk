@@ -396,7 +396,7 @@ struct APIClient: Sendable {
         // isolation gate). This is a *configuration* error, not a transient or
         // billing one: terminal, NOT auto-retried. Carry the server's
         // actionable message through verbatim — it is developer-facing guidance
-        // (add the production entitlement, or set `AppAttest.release = .staging`)
+        // (add the production entitlement, or call `AppAttest.start(release: .staging)`)
         // with no infrastructure detail. Reuse `.attestationRejected` (the
         // five-case error enum is locked); the message is the actionable part.
         if status == 403, code == "bucket_not_permitted" {

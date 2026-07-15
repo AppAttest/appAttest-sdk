@@ -9,9 +9,18 @@
 //
 // Release builds always run real App Attest and meter. `#if DEBUG` strips
 // `.local(stubs:)` — the only offline / free path — from Release binaries of
-// consuming apps, so a shipped build has no offline path. `AppAttest.release`
-// (.staging | .production) is compiled into all builds: it is only a routing
-// label, carries no secrets, and never bypasses metering.
+// consuming apps, so a shipped build has no offline path. The `release:` bucket
+// (.staging | .production) required by `AppAttest.start(release:)` is compiled
+// into all builds: it is only a routing label, carries no secrets, and never
+// bypasses metering.
+//
+// The bucket declaration is deliberately NOT gated on `#if DEBUG`: inside an
+// SDK that reflects how the SDK's own compilation unit was built, which the host
+// app does not control for an SwiftPM/CocoaPods dependency and which can diverge
+// from the host app's own `#if DEBUG`. Gating it once let a debug-flavored
+// distribution archive silently override an explicit `.production` and read
+// staging secrets in production (APP-102). Gate the free path on the build
+// flavor; never the bucket.
 
 import Foundation
 
@@ -20,7 +29,7 @@ import Foundation
 /// constants and is named differently to avoid the collision.
 public enum AppAttestSDK {
     /// SDK semantic version. Updated with each release tag.
-    public static let version = "0.3.0"
+    public static let version = "0.4.0"
 
     /// API contract major version this SDK targets. Bump on a new SDK
     /// major when the api ships breaking `/v2/*` endpoints.

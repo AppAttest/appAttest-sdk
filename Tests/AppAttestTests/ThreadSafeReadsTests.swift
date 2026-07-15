@@ -80,7 +80,7 @@ final class ThreadSafeReadsTests: XCTestCase {
     func testMirrorConsistencyAfterLocalSync() async throws {
         let client = AppAttestClient()
         client.debug = .local(stubs: ["A": "1", "B": "2"])
-        client.start()
+        client.start(release: .production)
         try await client.waitForReady()
 
         XCTAssertEqual(client.state, .ready)
@@ -105,7 +105,7 @@ final class ThreadSafeReadsTests: XCTestCase {
         )
         client._testSignBodyOverride = { _ in "AA==" }
 
-        client.start()
+        client.start(release: .production)
         try await client.waitForReady()
 
         XCTAssertEqual(client.state, .ready)

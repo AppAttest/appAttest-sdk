@@ -40,17 +40,29 @@ debug mode is stripped. You cannot accidentally ship a build to
 TestFlight that reads stub secrets — the type literally does not exist
 in the compiled binary.
 
-## What about `AppAttest.release = .staging` in a Release build?
+## What about `start(release: .staging)` in a Release build?
 
-Unlike ``DebugMode/local(stubs:)``, ``AppAttest/release`` **is** compiled into
+Unlike ``DebugMode/local(stubs:)``, the `release:` bucket **is** compiled into
 Release builds — deliberately. It is only a routing label choosing which
 metered bucket to attest against (`.staging` or `.production`); it carries no
 secrets and opens no offline path. Both buckets require a real attestation and
-are **metered** — selecting `.staging` in a shipped binary does not make
+are **metered** — declaring `.staging` in a shipped binary does not make
 anything free and cannot bypass billing. The one free path remains
 ``DebugMode/local(stubs:)``, which is stripped from Release. That is what keeps
 billing un-hackable: every shipped app attests and meters, and which bucket it
 declares changes only *which* secrets it reads, never *whether* it pays.
+
+Note the asymmetry with the debug mode above, and why it is correct: `.local`
+is `#if DEBUG`-gated because it is a **free, offline** path that must never
+exist in a shipped binary. The bucket declaration is **not** gated on
+`#if DEBUG` — precisely the opposite. Inside an SDK, `#if DEBUG` reflects how
+the *SDK's own compilation unit* was built, which a host app consuming the SDK
+via SwiftPM / CocoaPods does not control and which can diverge from the host
+app's own `#if DEBUG`. Gating the declaration on it let a debug-flavored
+distribution archive silently override an explicit `.production` and read
+**staging secrets in production**. So: gate the free path on the build flavor;
+never let the build flavor decide which metered bucket you meant. The developer
+states the bucket explicitly, and the SDK declares exactly that.
 
 ## What about the base URL?
 

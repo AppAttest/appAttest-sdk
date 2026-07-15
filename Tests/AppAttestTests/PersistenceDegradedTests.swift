@@ -63,7 +63,7 @@ final class PersistenceDegradedTests: XCTestCase {
         let sink = Box<[PersistenceError]>([])
         client.onPersistenceIssue = { err in sink.mutate { $0.append(err) } }
 
-        client.start()
+        client.start(release: .production)
         try await client.waitForReady()
 
         // The sync succeeded end-to-end despite the broken Keychain.
@@ -115,7 +115,7 @@ final class PersistenceDegradedTests: XCTestCase {
         let sink = Box<[PersistenceError]>([])
         client.onPersistenceIssue = { err in sink.mutate { $0.append(err) } }
 
-        client.start()
+        client.start(release: .production)
         try await client.waitForReady()
 
         XCTAssertEqual(client.state, .ready)

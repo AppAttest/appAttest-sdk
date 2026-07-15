@@ -14,7 +14,7 @@ import AppAttest
 
 @main
 struct MyApp: App {
-    init() { AppAttest.start() }
+    init() { AppAttest.start(release: .production) }
 
     var body: some Scene {
         WindowGroup { ContentView() }

@@ -28,7 +28,7 @@ final class ForegroundResyncTests: XCTestCase {
     func testForegroundReSyncFiresRepeatedlyAfterCompletedSync() async throws {
         let client = AppAttestClient()
         client.debug = .local(stubs: ["K": "V"])
-        client.start()
+        client.start(release: .production)
         try await client.waitForReady()
         XCTAssertEqual(client.state, .ready, "launch sync should complete to .ready")
 

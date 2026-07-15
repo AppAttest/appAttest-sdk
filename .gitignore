@@ -20,3 +20,13 @@ DerivedData/
 
 # Acceptance matrix runner output (syslog dumps, etc.)
 tmp/
+
+# Build artifacts. `.build/` (SPM) is covered above; these are the Xcode
+# example/acceptance app outputs, which are NOT dot-prefixed.
+build/
+**/build/
+
+# Local validation notes / device-test evidence. Private-only: these routinely
+# contain staging hosts and local DerivedData paths, and this repo is the source
+# of the PUBLIC mirror export. Never commit them.
+.validation/

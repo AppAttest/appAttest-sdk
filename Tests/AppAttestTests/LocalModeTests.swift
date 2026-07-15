@@ -14,7 +14,7 @@ final class LocalModeTests: XCTestCase {
     func testLocalModeServesStubsAfterStart() async throws {
         let stubs = ["STRIPE_PUBLISHABLE_KEY": "pk_test_123", "RESEND_API_KEY": "re_test_abc"]
         AppAttestClient.shared.debug = .local(stubs: stubs)
-        AppAttestClient.shared.start()
+        AppAttestClient.shared.start(release: .production)
 
         try await AppAttestClient.shared.waitForReady()
 
@@ -25,14 +25,14 @@ final class LocalModeTests: XCTestCase {
 
     func testMissingSecretReturnsNil() async throws {
         AppAttestClient.shared.debug = .local(stubs: ["A": "1"])
-        AppAttestClient.shared.start()
+        AppAttestClient.shared.start(release: .production)
         try await AppAttestClient.shared.waitForReady()
         XCTAssertNil(AppAttestClient.shared.secrets["DOES_NOT_EXIST"])
     }
 
     func testNamespaceAccessForwardsToShared() async throws {
         AppAttestClient.shared.debug = .local(stubs: ["A": "1"])
-        AppAttest.start()
+        AppAttest.start(release: .production)
         try await AppAttest.waitForReady()
         XCTAssertEqual(AppAttest.secrets["A"], "1")
         XCTAssertEqual(AppAttest.state, .ready)

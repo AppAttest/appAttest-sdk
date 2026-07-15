@@ -101,7 +101,7 @@ a separate, non-fatal signal you can observe.
 - ``AppAttest/onPersistenceIssue`` — an optional sink fired on the main
   actor for *every* failure as it happens (the two properties above give
   the current state; the sink gives the full stream). Set it before
-  ``AppAttest/start()``.
+  ``AppAttest/start(release:)``.
 
 ``PersistenceError`` carries no secret material — only the
 ``PersistenceError/artifact`` (`.secrets` / `.credentials`), the
@@ -123,7 +123,7 @@ struct MyApp: App {
         AppAttest.onPersistenceIssue = { error in
             logger.warning("AppAttest cache degraded: \(error)")
         }
-        AppAttest.start()
+        AppAttest.start(release: .production)
     }
 
     var body: some Scene {
@@ -244,7 +244,7 @@ subscribe, top up, or investigate a service incident.
 ```swift
 @main
 struct MyApp: App {
-    init() { AppAttest.start() }
+    init() { AppAttest.start(release: .production) }
 
     var body: some Scene {
         WindowGroup {

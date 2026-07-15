@@ -8,7 +8,7 @@ Add the package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.3.0")
+    .package(url: "https://github.com/AppAttest/appAttest-sdk.git", from: "0.4.0")
 ]
 ```
 
@@ -32,7 +32,7 @@ import AppAttest
 
 @main
 struct MyApp: App {
-    init() { AppAttest.start() }
+    init() { AppAttest.start(release: .production) }
 
     var body: some Scene {
         WindowGroup { ContentView() }
@@ -40,7 +40,7 @@ struct MyApp: App {
 }
 ```
 
-``AppAttest/start()`` is synchronous and idempotent. It hydrates
+``AppAttest/start(release:)`` is synchronous and idempotent. It hydrates
 ``AppAttestClient/secrets`` from the Keychain (cold-start fast path),
 hooks a foreground observer, and spawns the background sync `Task`.
 Subsequent calls are no-ops.
